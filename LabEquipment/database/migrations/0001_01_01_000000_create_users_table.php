@@ -13,10 +13,12 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
+            $table->string('account')->unique()->comment('学号/工号作为唯一标识'); // 新增：用于登录
             $table->string('name');
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            $table->enum('role', ['user', 'admin'])->default('user')->comment('角色：学生/管理员');
             $table->rememberToken();
             $table->timestamps();
         });
