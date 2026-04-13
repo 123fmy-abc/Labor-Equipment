@@ -27,12 +27,12 @@ class FmyController extends Controller
         // 检查设备是否已被预约（时间冲突检查）
         $conflictBooking = Booking::where('device_id', $validator['device_id'])
             ->whereIn('status', ['pending', 'approved'])
-            ->where(function ($query) use ($validated) {
-                $query->whereBetween('start_date', [$validated['start_date'], $validated['end_date']])
-                    ->orWhereBetween('end_date', [$validated['start_date'], $validated['end_date']])
-                    ->orWhere(function ($q) use ($validated) {
-                        $q->where('start_date', '<=', $validated['start_date'])
-                            ->where('end_date', '>=', $validated['end_date']);
+            ->where(function ($query) use ($validator) {
+                $query->whereBetween('start_date', [$validator['start_date'], $validator['end_date']])
+                    ->orWhereBetween('end_date', [$validator['start_date'], $validator['end_date']])
+                    ->orWhere(function ($q) use ($validator) {
+                        $q->where('start_date', '<=', $validator['start_date'])
+                            ->where('end_date', '>=', $validator['end_date']);
                     });
             })
             ->first();
@@ -47,10 +47,10 @@ class FmyController extends Controller
         // 创建借用申请
         $booking = Booking::create([
             'user_id' => auth()->id(), // 当前登录用户ID
-            'device_id' => $validated['device_id'],
-            'start_date' => $validated['start_date'],
-            'end_date' => $validated['end_date'],
-            'purpose' => $validated['purpose'],
+            'device_id' => $validator['device_id'],
+            'start_date' => $validator['start_date'],
+            'end_date' => $validator['end_date'],
+            'purpose' => $validator['purpose'],
             'status' => 'pending', // 默认待审核状态
         ]);
 
@@ -70,8 +70,7 @@ class FmyController extends Controller
                 'start_date' => $booking->start_date->format('Y-m-d'),
                 'end_date' => $booking->end_date->format('Y-m-d'),
                 'purpose' => $booking->purpose,
-                'status' => $booking->status,
-                'created_at' => $booking->created_at->format('Y-m-d H:i:s'),
+                'status' => $booking->status
             ]
         ]);
     }
