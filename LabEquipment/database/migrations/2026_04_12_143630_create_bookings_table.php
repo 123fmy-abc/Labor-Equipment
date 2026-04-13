@@ -13,13 +13,14 @@ return new class extends Migration
     {
         Schema::create('bookings', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade'); // 关联用户
-            $table->foreignId('device_id')->constrained()->onDelete('cascade'); // 关联设备
+            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('set null'); // 关联用户
+            // 加上 ->nullable()
+            $table->foreignId('device_id')->nullable()->constrained('devices')->onDelete('set null'); // 关联设备
             $table->date('start_date')->comment('借用开始日期');
             $table->date('end_date')->comment('借用结束日期');
             $table->text('purpose')->nullable()->comment('用途说明');
 
-            // 核心状态字段，对应文档 4.1 状态机
+
             $table->enum('status', ['pending', 'approved', 'rejected', 'returned'])
                 ->default('pending')->comment('状态：待审核/已通过/已拒绝/已归还');
 

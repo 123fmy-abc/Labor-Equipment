@@ -2,7 +2,7 @@
 
 namespace app\Http\Controllers;
 
-class FmyController
+class FmyController extends Controller
 {
-
+    
 }
