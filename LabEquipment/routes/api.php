@@ -1,6 +1,6 @@
 <?php
 
-use app\Http\Controllers\FmyController;
+use App\Http\Controllers\FmyController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ZztController;
 
