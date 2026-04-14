@@ -18,14 +18,14 @@ return new class extends Migration
             $table->foreignId('device_id')->nullable()->constrained('devices')->onDelete('set null'); // 关联设备
             $table->date('start_date')->comment('借用开始日期');
             $table->date('end_date')->comment('借用结束日期');
+            $table->timestamp('returned_at')->nullable()->comment('实际归还时间');
             $table->text('purpose')->nullable()->comment('用途说明');
-
-
             $table->enum('status', ['pending', 'approved', 'rejected', 'returned'])
                 ->default('pending')->comment('状态：待审核/已通过/已拒绝/已归还');
-
-            $table->timestamps();
+            $table->string('rejected_reason')->nullable()->comment('拒绝原因');
             $table->timestamp('approved_at')->nullable()->comment('审批时间');
+            $table->softDeletes();
+            $table->timestamps();
         });
     }
 

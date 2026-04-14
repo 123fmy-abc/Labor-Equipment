@@ -18,8 +18,10 @@ return new class extends Migration
             $table->foreignId('category_id')->constrained()->onDelete('restrict')->comment('分类，如：电子/光学');
             $table->text('description')->nullable()->comment('设备描述');
             $table->integer('total_qty')->default(0)->comment('总库存');
+            $table->integer('available_qty')->default(0)->comment('可用库存');
             $table->enum('status', ['available', 'maintenance', 'disabled'])
                 ->default('available')->comment('状态：可借/维护中/下架');
+            $table->softDeletes();
             $table->timestamps();
         });
     }
