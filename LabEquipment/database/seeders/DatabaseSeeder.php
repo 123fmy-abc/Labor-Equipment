@@ -1,25 +1,53 @@
 <?php
 
-namespace Database\Seeders;
+namespace database\seeders;
 
 use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $users = [
+            [
+                'account' => '25010420511',
+                'name'    => '张梓潼',
+                'email'   => '2704868796@qq.com',
+                'password'=> Hash::make('123456'),
+                'role'    => 'admin',
+                'email_verified_at' => now(),
+            ],
+            [
+                'account' => '25010420522',
+                'name'    => '柴国继',
+                'email'   => '2835129893@qq.com',
+                'password'=> Hash::make('123456'),
+                'role'    => 'admin',
+                'email_verified_at' => now(),
+            ],
+            [
+                'account' => '25010420533',
+                'name'    => '伏明月',
+                'email'   => '3227605507@qq.com',
+                'password'=> Hash::make('123456'),
+                'role'    => 'admin',
+                'email_verified_at' => now(),
+            ],
+        ];
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        foreach ($users as $userData) {
+            User::updateOrCreate(
+                ['email' => $userData['email']],
+                [
+                    'account'           => $userData['account'],
+                    'name'              => $userData['name'],
+                    'password'          => $userData['password'],
+                    'role'              => $userData['role'],
+                    'email_verified_at' => $userData['email_verified_at'],
+                ]
+            );
+        }
     }
 }

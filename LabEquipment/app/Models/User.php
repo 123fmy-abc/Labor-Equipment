@@ -7,11 +7,12 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token'])]
+//#[Fillable(['name', 'email', 'password'])]
+//#[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -28,5 +29,25 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'account',
+        'role',
+        'email_verified_at'
+    ];
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+    public function device()
+    {
+        return $this->hasMany(Device::class);
+    }
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
     }
 }
