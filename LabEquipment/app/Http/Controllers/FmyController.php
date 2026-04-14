@@ -2,13 +2,14 @@
 
 namespace app\Http\Controllers;
 
-use app\Http\Requests\UpdateBookingRequest;
-use app\Models\Booking;
-use app\Models\Device;
+use App\Http\Requests\UpdateBookingRequest;
+use App\Models\Booking;
+use App\Models\Device;
 use http\Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 class FmyController extends Controller
 {
@@ -103,7 +104,7 @@ class FmyController extends Controller
 
 
     //获取当前登录用户的单条借用申请详情
-    public function singlebooking(int $id)
+    public function singleBooking(int $id)
     {
         try {
             $userId = auth()->id();
@@ -182,7 +183,7 @@ class FmyController extends Controller
 
 
     //修改当前登录用户的指定待审核申请信息
-    public function changebooking($id, UpdateBookingRequest $request)
+    public function changeBooking($id, UpdateBookingRequest $request)
     {
         $userId = auth()->id();
 
@@ -392,7 +393,7 @@ class FmyController extends Controller
 
 
     //获取借用记录（管理员）
-    public function allbooking(Request $request)
+    public function allBooking(Request $request)
     {
         // 添加管理员权限检查
          if (!auth()->user()->isAdmin()) {
@@ -597,7 +598,7 @@ class FmyController extends Controller
         }
 
         // 验证拒绝原因
-        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), [
             'reason' => 'required|string|min:2|max:500',
         ], [
             'reason.required' => '拒绝原因必须填写',
@@ -647,6 +648,5 @@ class FmyController extends Controller
             ]
         ]);
     }
-
 
 }
