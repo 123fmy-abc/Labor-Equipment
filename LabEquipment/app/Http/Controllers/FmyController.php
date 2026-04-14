@@ -46,7 +46,7 @@ class FmyController extends Controller
 
         // 创建借用申请
         $booking = Booking::create([
-            'user_id' => auth()->id(), // 当前登录用户ID
+            'user_id' => auth()->id(), 
             'device_id' => $validator['device_id'],
             'start_date' => $validator['start_date'],
             'end_date' => $validator['end_date'],
