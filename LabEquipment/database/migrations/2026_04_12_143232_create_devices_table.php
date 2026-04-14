@@ -21,6 +21,7 @@ return new class extends Migration
             $table->integer('available_qty')->default(0)->comment('可用库存');
             $table->enum('status', ['available', 'maintenance', 'disabled'])
                 ->default('available')->comment('状态：可借/维护中/下架');
+            $table->softDeletes();
             $table->timestamps();
         });
     }
