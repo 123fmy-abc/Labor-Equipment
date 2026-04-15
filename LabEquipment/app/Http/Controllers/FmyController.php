@@ -499,14 +499,6 @@ class FmyController extends Controller
     //8.获取借用记录（管理员）
     public function allBooking(Request $request)
     {
-        // 添加管理员权限检查
-         if (!auth()->user()->isAdmin()) {
-             return response()->json([
-                 'code' => 403,
-                 'message' => '无权访问',
-                 'data'=>null
-             ], 403);
-         }
 
         $query = Booking::with([
             'user:id,name,account',
@@ -612,15 +604,6 @@ class FmyController extends Controller
     //9.审核通过（管理员，支持批量）
     public function approve(Request $request)
     {
-        // 管理员权限检查
-        if (!auth()->user()->isAdmin()) {
-            return response()->json([
-                'code' => 403,
-                'message' => '无权访问',
-                'data' => null
-            ], 403);
-        }
-
         // 验证参数
         $validator = Validator::make($request->all(), [
             'ids' => 'required|array|min:1',
@@ -729,15 +712,6 @@ class FmyController extends Controller
     //10.审核拒绝（管理员，支持批量）
     public function reject(Request $request)
     {
-        // 管理员权限检查
-        if (!auth()->user()->isAdmin()) {
-            return response()->json([
-                'code' => 403,
-                'message' => '无权访问',
-                'data' => null
-            ], 403);
-        }
-
         // 验证参数
         $validator = Validator::make($request->all(), [
             'ids' => 'required|array|min:1',
