@@ -15,7 +15,7 @@ use App\Http\Requests\CreateBookingRequest;
 class FmyController extends Controller
 {
 
-    //提交借用申请
+    //1.提交借用申请
     public function createBooking(CreateBookingRequest $request)
     {
         $userId = auth()->id();
@@ -24,6 +24,7 @@ class FmyController extends Controller
         $deviceId = $validated['device_id'];
         $startDate = $validated['start_date'];
         $endDate = $validated['end_date'];
+        $purpose = $validated['purpose'];
 
         // 检查设备是否存在且可用
         $device = Device::where('id', $deviceId)
@@ -53,7 +54,7 @@ class FmyController extends Controller
             'device_id' => $deviceId,
             'start_date' => $startDate,
             'end_date' => $endDate,
-            'purpose' => $validated['purpose'],
+            'purpose' => $purpose,
             'status' => 'pending',
         ]);
 
@@ -80,7 +81,6 @@ class FmyController extends Controller
                 'end_date' => $booking->end_date->format('Y-m-d'),
                 'purpose' => $booking->purpose,
                 'status' => $booking->status,
-                'created_at' => $booking->created_at->format('Y-m-d H:i:s'),
             ],
         ], 201);
     }
@@ -115,7 +115,9 @@ class FmyController extends Controller
                     });
             });
 
+
         // 如果是修改操作，排除当前记录
+        //修改借用申请时排除自己的逻辑
         if ($excludeBookingId) {
             $query->where('id', '!=', $excludeBookingId);
         }
@@ -130,7 +132,7 @@ class FmyController extends Controller
 
 
 
-    //取消当前用户指定待审核申请
+    //2.取消当前用户指定待审核申请
     public function cancelMyPending(int $id)
     {
         $userId = auth()->id();
@@ -164,7 +166,7 @@ class FmyController extends Controller
 
 
 
-    //修改当前登录用户的指定待审核申请信息
+    //3.修改当前登录用户的指定待审核申请信息
     public function changeBooking($id, UpdateBookingRequest $request)
     {
         $userId = auth()->id();
@@ -177,6 +179,7 @@ class FmyController extends Controller
             return response()->json([
                 'code' => 404,
                 'message' => '借用记录不存在或无权修改',
+                'data' => null
             ], 404);
         }
 
@@ -185,21 +188,56 @@ class FmyController extends Controller
             return response()->json([
                 'code' => 403,
                 'message' => '仅待审核状态的申请可修改',
+                'data' => null
             ], 403);
         }
 
         $validated = $request->validated();
 
         // 如果修改了 device_id 或日期，需要重新检查时间冲突
-        if (isset($validated['device_id']) || isset($validated['start_date']) || isset($validated['end_date'])) {
+        if (isset($validated['device_id']) || isset($validated['start_date']) || isset($validated['end_date'])) {//判断是否修改了关键字段
+           //如果传了新设备ID就用新的，否则用原来的
             $deviceId = $validated['device_id'] ?? $booking->device_id;
             $startDate = $validated['start_date'] ?? $booking->start_date->format('Y-m-d');
             $endDate = $validated['end_date'] ?? $booking->end_date->format('Y-m-d');
+
+            // 如果修改了设备，检查新设备的分类是否与原设备一致
+            if (isset($validated['device_id']) && $deviceId != $booking->device_id) {
+                $oldDevice = Device::with('category')->find($booking->device_id);
+                $newDevice = Device::with('category')->find($deviceId);
+
+                if ($oldDevice && $newDevice) {
+                    $oldCategoryId = $oldDevice->category_id;
+                    $newCategoryId = $newDevice->category_id;
+
+                    if ($oldCategoryId !== $newCategoryId) {
+                        return response()->json([
+                            'code' => 400,
+                            'message' => '新设备与原设备不属于同一分类，请选择同分类的设备',
+                            'data' => [
+                                'old_device' => [
+                                    'id' => $oldDevice->id,
+                                    'name' => $oldDevice->name,
+                                    'category_id' => $oldCategoryId,
+                                    'category_name' => $oldDevice->category->name ?? null,
+                                ],
+                                'new_device' => [
+                                    'id' => $newDevice->id,
+                                    'name' => $newDevice->name,
+                                    'category_id' => $newCategoryId,
+                                    'category_name' => $newDevice->category->name ?? null,
+                                ],
+                            ]
+                        ], 400);
+                    }
+                }
+            }
 
             if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate, $id)) {
                 return response()->json([
                     'code' => 409,
                     'message' => '该时间段内设备库存不足，请选择其他时间',
+                    'data' => null
                 ], 409);
             }
         }
@@ -228,8 +266,8 @@ class FmyController extends Controller
                 ] : null,
                 'start_date' => $booking->start_date->format('Y-m-d'),
                 'end_date' => $booking->end_date->format('Y-m-d'),
+                'purpose'=> $booking->purpose,
                 'status' => $booking->status,
-                'updated_at' => $booking->updated_at->format('Y-m-d H:i:s'),
             ],
         ]);
     }
@@ -238,20 +276,13 @@ class FmyController extends Controller
 
 
 
-    //获取当前登录用户的所有借用申请记录
+    //4.获取当前登录用户的借用申请记录
     public function myBooking(Request $request)
     {
         try {
             $userId = auth()->id();
-            // 用户未登录
-            if (!$userId) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '请先登录后再操作',
-                    'data' => null
-                ], 401);
-            }
 
+            // 获取状态筛选参数
             $status = $request->input('status');
 
             // 关联预加载（解决 N+1 问题）
@@ -273,27 +304,16 @@ class FmyController extends Controller
             $perPage = $request->input('per_page', 10);
             $bookings = $query->paginate($perPage);
 
-            // 格式化数据（使用安全的 optional() 辅助函数防止报错）
+            // 格式化数据（只返回指定字段）
             $formattedData = $bookings->map(function ($booking) {
                 return [
-                    'id' => $booking->id,
-                    'device' => $booking->device ? [
-                        'id' => $booking->device->id,
-                        'name' => $booking->device->name,
-                        'category' => $booking->device->category ? [
-                            'id' => $booking->device->category->id,
-                            'name' => $booking->device->category->name,
-                        ] : null,
-                    ] : null,
-                    // 使用 optional 防止日期为空时报错
+                    'device_id' => $booking->device_id,
                     'start_date' => optional($booking->start_date)->format('Y-m-d'),
                     'end_date' => optional($booking->end_date)->format('Y-m-d'),
                     'purpose' => $booking->purpose,
                     'status' => $booking->status,
-                    'rejected_reason' => $booking->rejected_reason,
-                    'approved_at' => optional($booking->approved_at)->format('Y-m-d H:i:s'),
-                    'returned_at' => optional($booking->returned_at)->format('Y-m-d H:i:s'),
-                    'created_at' => $booking->created_at->format('Y-m-d H:i:s'),
+                    'rejected_reason'=> $booking->rejected_reason,
+                    'approved_at'=> $booking->approved_at,
                 ];
             });
 
@@ -331,20 +351,11 @@ class FmyController extends Controller
 
 
 
-    //获取当前登录用户的单条借用申请详情
+    //5.获取当前登录用户的单条借用申请详情
     public function singleBooking(int $id)
     {
         try {
             $userId = auth()->id();
-
-            // 用户未登录
-            if (!$userId) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '请先登录后再操作',
-                    'data' => null
-                ], 401);
-            }
 
             // 查询当前用户的单条借用记录
             $booking = Booking::where('id', $id)
@@ -408,7 +419,7 @@ class FmyController extends Controller
 
 
 
-    //当前登录用户归还指定设备
+    //6.当前登录用户归还指定设备
     public function returnBooking(int $id)
     {
         $userId = auth()->id();
@@ -424,6 +435,7 @@ class FmyController extends Controller
             return response()->json([
                 'code' => 404,
                 'message' => '借用记录不存在、无权操作或不是已批准状态',
+                'data' => null
             ], 404);
         }
         // 更新申请状态为已归还
@@ -451,7 +463,7 @@ class FmyController extends Controller
 
 
 
-    //删除已结束记录
+    //7.删除已结束记录
     public function deleteFinished(int $id)
     {
         $userId = auth()->id();
@@ -484,7 +496,7 @@ class FmyController extends Controller
 
 
 
-    //获取借用记录（管理员）
+    //8.获取借用记录（管理员）
     public function allBooking(Request $request)
     {
         // 添加管理员权限检查
@@ -597,7 +609,7 @@ class FmyController extends Controller
 
 
 
-    //审核通过（管理员，支持批量）
+    //9.审核通过（管理员，支持批量）
     public function approve(Request $request)
     {
         // 管理员权限检查
@@ -672,7 +684,7 @@ class FmyController extends Controller
 
             foreach ($bookings as $booking) {
                 $device = $booking->device;
-                
+
                 // 减少设备可用库存
                 $device->decrement('available_qty', 1);
 
@@ -714,7 +726,7 @@ class FmyController extends Controller
 
 
 
-    //审核拒绝（管理员，支持批量）
+    //10.审核拒绝（管理员，支持批量）
     public function reject(Request $request)
     {
         // 管理员权限检查

@@ -10,16 +10,8 @@ class AdminMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
-        // 1. 先判断用户是否登录
-        if (!Auth::check()) {
-            return response()->json([
-                'code' => 401,
-                'message' => '请先登录',
-                'data' => []
-            ], 401);
-        }
 
-        // 2. 再判断用户是否是管理员
+        //再判断用户是否是管理员
         $user = Auth::user();
         if (!$user->isAdmin()) {
             return response()->json([

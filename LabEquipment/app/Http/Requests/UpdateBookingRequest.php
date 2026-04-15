@@ -33,6 +33,12 @@ class UpdateBookingRequest extends FormRequest
                 'sometimes',
                 'in:pending,approved,rejected,returned',
             ],
+            'purpose' => [
+                'sometimes',
+                'string',
+                'min:2',
+                'max:500',
+            ],
         ];
     }
 
@@ -45,6 +51,9 @@ class UpdateBookingRequest extends FormRequest
             'start_date.after_or_equal' => '起始时间不能早于今天',
             'end_date.date_format' => '结束时间格式不正确，应为 YYYY-MM-DD',
             'status.in' => '状态值不正确',
+            'purpose.string' => '借用用途必须是字符串',
+            'purpose.min' => '借用用途至少2个字符',
+            'purpose.max' => '借用用途不能超过500个字符',
         ];
     }
 

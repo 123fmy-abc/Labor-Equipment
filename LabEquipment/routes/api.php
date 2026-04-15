@@ -63,7 +63,7 @@ Route::middleware('auth:api')->group(function () {
 
 
 //------- 管理员端(需要登录)-------
-Route::middleware('auth:api')->prefix('admin')->group(function () {
+Route::middleware(['auth:api', 'admin'])->group(function () {
     // 获取全部借用记录（支持筛选、搜索、分页）
     Route::get('/bookings', [FmyController::class, 'allBooking']);
 
