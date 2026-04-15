@@ -20,6 +20,65 @@ class CgjController extends Controller
     // ==================== 2. 设备模块 - 最后4个接口 ====================
 
     /**
+     * 修改设备信息
+     * PUT /devices/{id}
+     */
+    public function updateDevice(Request $request,$id)
+    {
+        $device=Device::find($id);
+
+        if(!$device){
+            return response()->json([
+                'code'=>404,
+                'message'=>'设备不存在'
+            ],404);
+        }
+        $validator = Validator::make($request->all(), [
+            'name' => 'sometimes|string|max:255',
+            'category_id' => 'sometimes|exists:categories,id',
+            'description' => 'nullable|string',
+            'total_qty' => 'sometimes|integer|min:0',
+            'status' => 'sometimes|in:available,maintenance,disabled'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'code' => 422,
+                'message' => '验证失败',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // 如果要修改总库存，需要校验新库存不能小于已借出数量
+        if ($request->has('total_qty')) {
+            $borrowedCount = Booking::where('device_id', $id)
+                ->whereIn('status', ['pending', 'approved'])
+                ->count();
+
+            if ($request->total_qty < $borrowedCount) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '总库存不能小于已借出数量（当前已借出：' . $borrowedCount . '）'
+                ], 400);
+            }
+        }
+
+        $device->update($request->only(['name', 'category_id', 'description', 'total_qty', 'status']));
+
+        // 重新计算可借数量
+        $device->available_qty = $device->total_qty - Booking::where('device_id', $device->id)
+                ->whereIn('status', ['pending', 'approved'])
+                ->count();
+
+        return response()->json([
+            'code' => 200,
+            'message' => '修改成功',
+            'data' => $device
+        ]);
+    }
+
+
+    /**
      * 修改设备状态
      * PUT /devices/{id}/status
      */
@@ -309,6 +368,81 @@ class CgjController extends Controller
             'code' => 200,
             'message' => '获取成功',
             'data' => $devices
+        ]);
+    }
+
+    // ==================== 借用模块 - 第1个接口 ====================
+
+    /**
+     * 11. 提交借用申请
+     * POST /api/bookings
+     */
+    public function createBooking(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'device_id' => 'required|exists:devices,id',
+            'start_date' => 'required|date|after_or_equal:today',
+            'end_date' => 'required|date|after_or_equal:start_date',
+            'purpose' => 'nullable|string|max:500'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'code' => 422,
+                'message' => '验证失败',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $device = Device::find($request->device_id);
+
+        // 检查设备状态
+        if ($device->status !== 'available') {
+            return response()->json([
+                'code' => 400,
+                'message' => '该设备当前不可借用'
+            ], 400);
+        }
+
+        // 检查库存（实时计算）
+        $availableQty = $device->total_qty - Booking::where('device_id', $device->id)
+                ->whereIn('status', ['pending', 'approved'])
+                ->count();
+
+        if ($availableQty <= 0) {
+            return response()->json([
+                'code' => 400,
+                'message' => '该设备当前无可用库存，请选择其他时间或设备'
+            ], 400);
+        }
+
+        // 检查同一用户是否已有未完成的借用申请（同一设备）
+        $existingBooking = Booking::where('user_id', Auth::id())
+            ->where('device_id', $request->device_id)
+            ->whereIn('status', ['pending', 'approved'])
+            ->first();
+
+        if ($existingBooking) {
+            return response()->json([
+                'code' => 400,
+                'message' => '您已有该设备的未完成借用申请，请先归还'
+            ], 400);
+        }
+
+        // 创建借用申请
+        $booking = Booking::create([
+            'user_id' => Auth::id(),
+            'device_id' => $request->device_id,
+            'start_date' => $request->start_date,
+            'end_date' => $request->end_date,
+            'purpose' => $request->purpose,
+            'status' => 'pending'
+        ]);
+
+        return response()->json([
+            'code' => 200,
+            'message' => '申请已提交，等待审核',
+            'data' => $booking->load('device', 'user')
         ]);
     }
 }
