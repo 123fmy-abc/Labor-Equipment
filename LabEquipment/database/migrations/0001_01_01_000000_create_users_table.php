@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('account')->unique()->comment('学号/工号作为唯一标识'); // 新增：用于登录
             $table->string('name');
             $table->string('email')->unique();
-            $table->string('code', 6); // 验证码
+
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->enum('role', ['user', 'admin'])->default('user')->comment('角色：学生/管理员');
