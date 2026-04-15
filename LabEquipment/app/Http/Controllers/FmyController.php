@@ -13,6 +13,78 @@ use Illuminate\Support\Facades\Validator;
 
 class FmyController extends Controller
 {
+
+     //提交借用申请
+    public function createBooking(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'device_id' => 'required|exists:devices,id',
+            'start_date' => 'required|date|after_or_equal:today',
+            'end_date' => 'required|date|after_or_equal:start_date',
+            'purpose' => 'nullable|string|max:500'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'code' => 422,
+                'message' => '验证失败',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $device = Device::find($request->device_id);
+
+        // 检查设备状态
+        if ($device->status !== 'available') {
+            return response()->json([
+                'code' => 400,
+                'message' => '该设备当前不可借用'
+            ], 400);
+        }
+
+        // 检查库存
+        $availableQty = $device->getAvailableQuantity();
+        if ($availableQty <= 0) {
+            return response()->json([
+                'code' => 400,
+                'message' => '该设备当前无可用库存，请选择其他时间或设备'
+            ], 400);
+        }
+
+        // 检查同一用户是否已有未完成的借用申请（同一设备）
+        $existingBooking = Booking::where('user_id', Auth::id())
+            ->where('device_id', $request->device_id)
+            ->whereIn('status', ['pending', 'approved'])
+            ->first();
+
+        if ($existingBooking) {
+            return response()->json([
+                'code' => 400,
+                'message' => '您已有该设备的未完成借用申请，请先归还'
+            ], 400);
+        }
+
+        // 创建借用申请
+        $booking = Booking::create([
+            'user_id' => Auth::id(),
+            'device_id' => $request->device_id,
+            'start_date' => $request->start_date,
+            'end_date' => $request->end_date,
+            'purpose' => $request->purpose,
+            'status' => 'pending'
+        ]);
+
+        return response()->json([
+            'code' => 200,
+            'message' => '申请已提交，等待审核',
+            'data' => $booking->load('device', 'user')
+        ]);
+    }
+
+
+
+
+
     //获取当前登录用户的所有借用申请记录
     public function myBooking(Request $request)
     {
