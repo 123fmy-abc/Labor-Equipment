@@ -10,74 +10,227 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Http\Requests\CreateBookingRequest;
 
 class FmyController extends Controller
 {
 
-     //提交借用申请
-    public function createBooking(Request $request)
+    //提交借用申请
+    public function createBooking(CreateBookingRequest $request)
     {
-        $validator = Validator::make($request->all(), [
-            'device_id' => 'required|exists:devices,id',
-            'start_date' => 'required|date|after_or_equal:today',
-            'end_date' => 'required|date|after_or_equal:start_date',
-            'purpose' => 'nullable|string|max:500'
-        ]);
+        $userId = auth()->id();
 
-        if ($validator->fails()) {
-            return response()->json([
-                'code' => 422,
-                'message' => '验证失败',
-                'errors' => $validator->errors()
-            ], 422);
-        }
+        $validated = $request->validated();
+        $deviceId = $validated['device_id'];
+        $startDate = $validated['start_date'];
+        $endDate = $validated['end_date'];
 
-        $device = Device::find($request->device_id);
-
-        // 检查设备状态
-        if ($device->status !== 'available') {
-            return response()->json([
-                'code' => 400,
-                'message' => '该设备当前不可借用'
-            ], 400);
-        }
-
-        // 检查库存
-        $availableQty = $device->getAvailableQuantity();
-        if ($availableQty <= 0) {
-            return response()->json([
-                'code' => 400,
-                'message' => '该设备当前无可用库存，请选择其他时间或设备'
-            ], 400);
-        }
-
-        // 检查同一用户是否已有未完成的借用申请（同一设备）
-        $existingBooking = Booking::where('user_id', Auth::id())
-            ->where('device_id', $request->device_id)
-            ->whereIn('status', ['pending', 'approved'])
+        // 检查设备是否存在且可用
+        $device = Device::where('id', $deviceId)
+            ->where('status', 'available')
             ->first();
 
-        if ($existingBooking) {
+        if (!$device) {
             return response()->json([
-                'code' => 400,
-                'message' => '您已有该设备的未完成借用申请，请先归还'
-            ], 400);
+                'code' => 404,
+                'message' => '设备不存在或当前不可借用',
+                'data' => null
+            ], 404);
+        }
+
+        // 检查该时间段内设备库存是否充足
+        if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate)) {
+            return response()->json([
+                'code' => 409,
+                'message' => '该时间段内设备库存不足，请选择其他时间',
+                'data' => null
+            ], 409);
         }
 
         // 创建借用申请
         $booking = Booking::create([
-            'user_id' => Auth::id(),
-            'device_id' => $request->device_id,
-            'start_date' => $request->start_date,
-            'end_date' => $request->end_date,
-            'purpose' => $request->purpose,
-            'status' => 'pending'
+            'user_id' => $userId,
+            'device_id' => $deviceId,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'purpose' => $validated['purpose'],
+            'status' => 'pending',
         ]);
+
+        // 加载关联数据
+        $booking->load(['device' => function ($query) {
+            $query->select('id', 'name', 'category_id')
+                ->with('category:id,name');
+        }]);
+
+        return response()->json([
+            'code' => 201,
+            'message' => '申请提交成功，等待管理员审核',
+            'data' => [
+                'id' => $booking->id,
+                'device' => $booking->device ? [
+                    'id' => $booking->device->id,
+                    'name' => $booking->device->name,
+                    'category' => $booking->device->category ? [
+                        'id' => $booking->device->category->id,
+                        'name' => $booking->device->category->name,
+                    ] : null,
+                ] : null,
+                'start_date' => $booking->start_date->format('Y-m-d'),
+                'end_date' => $booking->end_date->format('Y-m-d'),
+                'purpose' => $booking->purpose,
+                'status' => $booking->status,
+                'created_at' => $booking->created_at->format('Y-m-d H:i:s'),
+            ],
+        ], 201);
+    }
+
+
+
+
+    /**
+     * 检查设备在指定时间段内是否可用（库存充足）
+     */
+    private function isDeviceAvailable(int $deviceId, string $startDate, string $endDate, ?int $excludeBookingId = null): bool
+    {
+        $device = Device::find($deviceId);
+
+        if (!$device) {
+            return false;
+        }
+
+        // 查询该设备在指定时间段内已批准的借用数量
+        $query = Booking::where('device_id', $deviceId)
+            ->where('status', 'approved')
+            ->where(function ($q) use ($startDate, $endDate) {
+                // 日期范围重叠的条件：
+                // 1. 新申请的开始日期在已有借用期间内
+                // 2. 新申请的结束日期在已有借用期间内
+                // 3. 新申请的日期范围完全包含已有借用期间
+                $q->whereBetween('start_date', [$startDate, $endDate])
+                    ->orWhereBetween('end_date', [$startDate, $endDate])
+                    ->orWhere(function ($subQ) use ($startDate, $endDate) {
+                        $subQ->where('start_date', '<=', $startDate)
+                            ->where('end_date', '>=', $endDate);
+                    });
+            });
+
+        // 如果是修改操作，排除当前记录
+        if ($excludeBookingId) {
+            $query->where('id', '!=', $excludeBookingId);
+        }
+
+        $borrowedQty = $query->count();
+
+        // 已借用数量小于设备总数，说明还有库存
+        return $borrowedQty < $device->total_qty;
+    }
+
+
+
+
+
+    //取消当前用户指定待审核申请
+    public function cancelMyPending(int $id)
+    {
+        $userId = auth()->id();
+
+        // 查询当前用户的待审核申请
+        $booking = Booking::where('id', $id)
+            ->where('user_id', $userId)
+            ->where('status', 'pending')  // 确保是待审核状态
+            ->first();
+
+        // 记录不存在或不是待审核状态
+        if (!$booking) {
+            return response()->json([
+                'code' => 404,
+                'message' => '借用记录不存在、无权操作或不是待审核状态',
+                'data' => null
+            ], 404);
+        }
+        //直接删除记录
+        $booking->delete();
 
         return response()->json([
             'code' => 200,
-            'message' => '申请已提交，等待审核',
-            'data' => $booking->load('device', 'user')
+            'message' => '取消成功',
+            'data' =>null
+        ]);
+    }
+
+
+
+
+
+
+    //修改当前登录用户的指定待审核申请信息
+    public function changeBooking($id, UpdateBookingRequest $request)
+    {
+        $userId = auth()->id();
+
+        $booking = Booking::where('id', $id)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$booking) {
+            return response()->json([
+                'code' => 404,
+                'message' => '借用记录不存在或无权修改',
+            ], 404);
+        }
+
+        // 仅 pending 状态可修改
+        if ($booking->status !== 'pending') {
+            return response()->json([
+                'code' => 403,
+                'message' => '仅待审核状态的申请可修改',
+            ], 403);
+        }
+
+        $validated = $request->validated();
+
+        // 如果修改了 device_id 或日期，需要重新检查时间冲突
+        if (isset($validated['device_id']) || isset($validated['start_date']) || isset($validated['end_date'])) {
+            $deviceId = $validated['device_id'] ?? $booking->device_id;
+            $startDate = $validated['start_date'] ?? $booking->start_date->format('Y-m-d');
+            $endDate = $validated['end_date'] ?? $booking->end_date->format('Y-m-d');
+
+            if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate, $id)) {
+                return response()->json([
+                    'code' => 409,
+                    'message' => '该时间段内设备库存不足，请选择其他时间',
+                ], 409);
+            }
+        }
+
+        // 更新记录（只更新传入的字段）
+        $booking->update($validated);
+
+        // 重新加载关联数据
+        $booking->load(['device' => function ($query) {
+            $query->select('id', 'name', 'category_id')
+                ->with('category:id,name');
+        }]);
+
+        return response()->json([
+            'code' => 200,
+            'message' => '修改成功',
+            'data' => [
+                'id' => $booking->id,
+                'device' => $booking->device ? [
+                    'id' => $booking->device->id,
+                    'name' => $booking->device->name,
+                    'category' => $booking->device->category ? [
+                        'id' => $booking->device->category->id,
+                        'name' => $booking->device->category->name,
+                    ] : null,
+                ] : null,
+                'start_date' => $booking->start_date->format('Y-m-d'),
+                'end_date' => $booking->end_date->format('Y-m-d'),
+                'status' => $booking->status,
+                'updated_at' => $booking->updated_at->format('Y-m-d H:i:s'),
+            ],
         ]);
     }
 
@@ -175,6 +328,9 @@ class FmyController extends Controller
 
 
 
+
+
+
     //获取当前登录用户的单条借用申请详情
     public function singleBooking(int $id)
     {
@@ -247,142 +403,6 @@ class FmyController extends Controller
             ], 500);
         }
     }
-
-
-
-
-
-
-
-    //修改当前登录用户的指定待审核申请信息
-    public function changeBooking($id, UpdateBookingRequest $request)
-    {
-        $userId = auth()->id();
-
-        $booking = Booking::where('id', $id)
-            ->where('user_id', $userId)
-            ->first();
-
-        if (!$booking) {
-            return response()->json([
-                'code' => 404,
-                'message' => '借用记录不存在或无权修改',
-            ], 404);
-        }
-
-        // 仅 pending 状态可修改
-        if ($booking->status !== 'pending') {
-            return response()->json([
-                'code' => 403,
-                'message' => '仅待审核状态的申请可修改',
-            ], 403);
-        }
-
-        $validated = $request->validated();
-
-        // 如果修改了 device_id 或日期，需要重新检查时间冲突
-        if (isset($validated['device_id']) || isset($validated['start_date']) || isset($validated['end_date'])) {
-            $deviceId = $validated['device_id'] ?? $booking->device_id;
-            $startDate = $validated['start_date'] ?? $booking->start_date->format('Y-m-d');
-            $endDate = $validated['end_date'] ?? $booking->end_date->format('Y-m-d');
-
-            if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate, $id)) {
-                return response()->json([
-                    'code' => 409,
-                    'message' => '该时间段内设备库存不足，请选择其他时间',
-                ], 409);
-            }
-        }
-
-        // 更新记录（只更新传入的字段）
-        $booking->update($validated);
-
-        // 重新加载关联数据
-        $booking->load(['device' => function ($query) {
-            $query->select('id', 'name', 'category_id')
-                ->with('category:id,name');
-        }]);
-
-        return response()->json([
-            'code' => 200,
-            'message' => '修改成功',
-            'data' => [
-                'id' => $booking->id,
-                'device' => $booking->device ? [
-                    'id' => $booking->device->id,
-                    'name' => $booking->device->name,
-                    'category' => $booking->device->category ? [
-                        'id' => $booking->device->category->id,
-                        'name' => $booking->device->category->name,
-                    ] : null,
-                ] : null,
-                'start_date' => $booking->start_date->format('Y-m-d'),
-                'end_date' => $booking->end_date->format('Y-m-d'),
-                'status' => $booking->status,
-                'updated_at' => $booking->updated_at->format('Y-m-d H:i:s'),
-            ],
-        ]);
-    }
-
-    /**
-     * 检查设备在指定时间段是否有可用库存（排除当前记录）
-     */
-    private function isDeviceAvailable(int $deviceId, string $startDate, string $endDate, int $excludeBookingId): bool
-    {
-        $device = Device::find($deviceId);
-        if (!$device) {
-            return false;
-        }
-
-        $bookedCount = Booking::where('device_id', $deviceId)
-            ->where('id', '!=', $excludeBookingId)  // 排除当前记录
-            ->whereIn('status', ['pending', 'approved'])
-            ->where(function ($query) use ($startDate, $endDate) {
-                $query->whereBetween('start_date', [$startDate, $endDate])
-                    ->orWhereBetween('end_date', [$startDate, $endDate])
-                    ->orWhere(function ($q) use ($startDate, $endDate) {
-                        $q->where('start_date', '<=', $startDate)
-                            ->where('end_date', '>=', $endDate);
-                    });
-            })
-            ->count();
-        return $bookedCount < $device->total_qty;
-    }
-
-
-
-
-
-
-    //取消当前用户指定待审核申请
-    public function cancelMyPending(int $id)
-    {
-        $userId = auth()->id();
-
-        // 查询当前用户的待审核申请
-        $booking = Booking::where('id', $id)
-            ->where('user_id', $userId)
-            ->where('status', 'pending')  // 确保是待审核状态
-            ->first();
-
-        // 记录不存在或不是待审核状态
-        if (!$booking) {
-            return response()->json([
-                'code' => 404,
-                'message' => '借用记录不存在、无权操作或不是待审核状态',
-            ], 404);
-        }
-        //直接删除记录
-        $booking->delete();
-
-        return response()->json([
-            'code' => 200,
-            'message' => '取消成功',
-            'data' =>null
-        ]);
-    }
-
-
 
 
 
@@ -577,8 +597,8 @@ class FmyController extends Controller
 
 
 
-    //审核通过（管理员）
-    public function approve(int $id)
+    //审核通过（管理员，支持批量）
+    public function approve(Request $request)
     {
         // 管理员权限检查
         if (!auth()->user()->isAdmin()) {
@@ -589,56 +609,93 @@ class FmyController extends Controller
             ], 403);
         }
 
-        // 查询待审核的申请
-        $booking = Booking::where('id', $id)
+        // 验证参数
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:bookings,id',
+        ], [
+            'ids.required' => '请选择要审批的记录',
+            'ids.array' => '参数格式错误，ids必须是数组',
+            'ids.min' => '请至少选择一条记录',
+            'ids.*.integer' => '记录ID必须是整数',
+            'ids.*.exists' => '记录不存在',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'code' => 422,
+                'message' => '参数错误',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $ids = $request->input('ids');
+
+        // 查询所有待审核的申请
+        $bookings = Booking::whereIn('id', $ids)
             ->where('status', 'pending')
             ->with('device')
-            ->first();
+            ->get();
 
-        // 记录不存在或不是待审核状态
-        if (!$booking) {
+        if ($bookings->isEmpty()) {
             return response()->json([
                 'code' => 404,
-                'message' => '借用记录不存在或不是待审核状态',
+                'message' => '没有符合条件的待审核记录',
                 'data' => null
             ], 404);
         }
 
-        // 检查设备可用库存
-        $device = $booking->device;
-        if ($device->available_qty <= 0) {
+        // 检查库存是否充足
+        $insufficientDevices = [];
+        foreach ($bookings as $booking) {
+            $device = $booking->device;
+            if ($device->available_qty <= 0) {
+                $insufficientDevices[] = $device->name;
+            }
+        }
+
+        if (!empty($insufficientDevices)) {
             return response()->json([
                 'code' => 409,
-                'message' => '设备库存不足，无法审批通过',
+                'message' => '以下设备库存不足：' . implode('、', $insufficientDevices),
                 'data' => [
-                    'device_name' => $device->name,
-                    'available_qty' => $device->available_qty,
+                    'insufficient_devices' => $insufficientDevices,
                 ]
             ], 409);
         }
+
         // 开启事务
         DB::beginTransaction();
         try {
-            // 减少设备可用库存
-            $device->decrement('available_qty', 1);
+            $approvedCount = 0;
+            $approvedIds = [];
 
-            // 更新申请状态为已通过
-            $booking->update([
-                'status' => 'approved',
-                'approved_at' => now(),
-            ]);
+            foreach ($bookings as $booking) {
+                $device = $booking->device;
+                
+                // 减少设备可用库存
+                $device->decrement('available_qty', 1);
+
+                // 更新申请状态为已通过
+                $booking->update([
+                    'status' => 'approved',
+                    'approved_at' => now(),
+                ]);
+
+                $approvedCount++;
+                $approvedIds[] = $booking->id;
+            }
 
             DB::commit();
 
             return response()->json([
                 'code' => 200,
-                'message' => '审批通过',
+                'message' => "审批通过 {$approvedCount} 条记录",
                 'data' => [
-                    'booking_id' => $id,
-                    'device_name' => $device->name,
-                    'status' => 'approved',
+                    'approved_ids' => $approvedIds,
+                    'approved_count' => $approvedCount,
+                    'total_count' => count($ids),
                     'approved_at' => now()->format('Y-m-d H:i:s'),
-                    'available_qty' => $device->fresh()->available_qty, // 更新后的库存
                 ]
             ]);
         } catch (\Exception $e) {
@@ -657,8 +714,8 @@ class FmyController extends Controller
 
 
 
-    //审核拒绝（管理员）
-    public function reject(Request $request, int $id)
+    //审核拒绝（管理员，支持批量）
+    public function reject(Request $request)
     {
         // 管理员权限检查
         if (!auth()->user()->isAdmin()) {
@@ -669,10 +726,17 @@ class FmyController extends Controller
             ], 403);
         }
 
-        // 验证拒绝原因
+        // 验证参数
         $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:bookings,id',
             'reason' => 'required|string|min:2|max:500',
         ], [
+            'ids.required' => '请选择要拒绝的记录',
+            'ids.array' => '参数格式错误，ids必须是数组',
+            'ids.min' => '请至少选择一条记录',
+            'ids.*.integer' => '记录ID必须是整数',
+            'ids.*.exists' => '记录不存在',
             'reason.required' => '拒绝原因必须填写',
             'reason.min' => '拒绝原因至少2个字符',
             'reason.max' => '拒绝原因不能超过500个字符',
@@ -686,36 +750,46 @@ class FmyController extends Controller
             ], 422);
         }
 
-        // 查询待审核的申请
-        $booking = Booking::where('id', $id)
+        $ids = $request->input('ids');
+        $reason = $request->input('reason');
+
+        // 查询所有待审核的申请
+        $bookings = Booking::whereIn('id', $ids)
             ->where('status', 'pending')
             ->with('device')
-            ->first();
+            ->get();
 
-        // 记录不存在或不是待审核状态
-        if (!$booking) {
+        if ($bookings->isEmpty()) {
             return response()->json([
                 'code' => 404,
-                'message' => '借用记录不存在或不是待审核状态',
+                'message' => '没有符合条件的待审核记录',
                 'data' => null
             ], 404);
         }
 
-        // 更新申请状态为已拒绝
-        $booking->update([
-            'status' => 'rejected',
-            'rejected_reason' => $request->input('reason'),
-            'approved_at' => now(), // 审批时间（拒绝也是审批的一种结果）
-        ]);
+        // 批量更新为已拒绝
+        $rejectedCount = 0;
+        $rejectedIds = [];
+
+        foreach ($bookings as $booking) {
+            $booking->update([
+                'status' => 'rejected',
+                'rejected_reason' => $reason,
+                'approved_at' => now(),
+            ]);
+
+            $rejectedCount++;
+            $rejectedIds[] = $booking->id;
+        }
 
         return response()->json([
             'code' => 200,
-            'message' => '审批已拒绝',
+            'message' => "审批拒绝 {$rejectedCount} 条记录",
             'data' => [
-                'booking_id' => $id,
-                'device_name' => $booking->device->name ?? null,
-                'status' => 'rejected',
-                'rejected_reason' => $request->input('reason'),
+                'rejected_ids' => $rejectedIds,
+                'rejected_count' => $rejectedCount,
+                'total_count' => count($ids),
+                'rejected_reason' => $reason,
                 'rejected_at' => now()->format('Y-m-d H:i:s'),
             ]
         ]);
