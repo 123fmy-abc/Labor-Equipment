@@ -10,48 +10,48 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $users = [
-            [
-                'account' => '25010420511',
-                'name'    => '张梓潼',
-                'email'   => '2704868796@qq.com',
-                'code'=>'111111',
-                'password'=> Hash::make('123456'),
-                'role'    => 'admin',
-                'email_verified_at' => now(),
-            ],
-            [
-                'account' => '25010420522',
-                'name'    => '柴国继',
-                'email'   => '2835129893@qq.com',
-                'code'=>'222222',
-                'password'=> Hash::make('123456'),
-                'role'    => 'admin',
-                'email_verified_at' => now(),
-            ],
-            [
-                'account' => '25010420533',
-                'name'    => '伏明月',
-                'email'   => '3227605507@qq.com',
-                'code'=>'333333',
-                'password'=> Hash::make('123456'),
-                'role'    => 'admin',
-                'email_verified_at' => now(),
-            ],
-        ];
-
-        foreach ($users as $userData) {
-            User::updateOrCreate(
-                ['email' => $userData['email']],
-                [
-                    'account'           => $userData['account'],
-                    'name'              => $userData['name'],
-                    'code'               => $userData['code'],
-                    'password'          => $userData['password'],
-                    'role'              => $userData['role'],
-                    'email_verified_at' => $userData['email_verified_at'],
-                ]
-            );
-        }
+//        $users = [
+//            [
+//                'account' => '25010420511',
+//                'name'    => '张梓潼',
+//                'email'   => '2704868796@qq.com',
+//                'code'=>'111111',
+//                'password'=> Hash::make('123456'),
+//                'role'    => 'admin',
+//                'email_verified_at' => now(),
+//            ],
+//            [
+//                'account' => '25010420522',
+//                'name'    => '柴国继',
+//                'email'   => '2835129893@qq.com',
+//                'code'=>'222222',
+//                'password'=> Hash::make('123456'),
+//                'role'    => 'admin',
+//                'email_verified_at' => now(),
+//            ],
+//            [
+//                'account' => '25010420533',
+//                'name'    => '伏明月',
+//                'email'   => '3227605507@qq.com',
+//                'code'=>'333333',
+//                'password'=> Hash::make('123456'),
+//                'role'    => 'admin',
+//                'email_verified_at' => now(),
+//            ],
+//        ];
+//
+//        foreach ($users as $userData) {
+//            User::updateOrCreate(
+//                ['email' => $userData['email']],
+//                [
+//                    'account'           => $userData['account'],
+//                    'name'              => $userData['name'],
+//                    'code'               => $userData['code'],
+//                    'password'          => $userData['password'],
+//                    'role'              => $userData['role'],
+//                    'email_verified_at' => $userData['email_verified_at'],
+//                ]
+//            );
+//        }
     }
 }
