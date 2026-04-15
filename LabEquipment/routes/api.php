@@ -81,16 +81,29 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
 // 需要登录的路由
 Route::group(['middleware' => 'auth:api'], function () {
     // 1. 设备模块 - 最后4个接口（管理员权限）
+    //修改设备信息
+    Route::put('/devices/{id}',[CgjController::class,'updateDevice'])->middleware('admin');
+    //修改设备状态
     Route::put('/devices/{id}/status', [CgjController::class, 'updateDeviceStatus'])->middleware('admin');
+    //删除设备
     Route::delete('/devices/{id}', [CgjController::class, 'deleteDevice'])->middleware('admin');
+    //设备使用统计
     Route::get('/devices/stats', [CgjController::class, 'deviceStats'])->middleware('admin');
 
     // 2. 分类模块 - 所有接口
+    //获取全部分类
     Route::get('/categories', [CgjController::class, 'getCategories']);
+    //获取单个分类
     Route::get('/categories/{id}', [CgjController::class, 'getCategory']);
+    //新增分类
     Route::post('/categories', [CgjController::class, 'createCategory'])->middleware('admin');
+    //修改分类
     Route::put('/categories/{id}', [CgjController::class, 'updateCategory'])->middleware('admin');
+    //删除分类
     Route::delete('/categories/{id}', [CgjController::class, 'deleteCategory'])->middleware('admin');
+    //获取分类下的设备
     Route::get('/categories/{id}/devices', [CgjController::class, 'getCategoryDevices']);
-
+    //3.借用模块-第1个接口
+    //提交借用申请
+    Route::post('/bookings',[CgjController::class,'createBooking']);
 });
