@@ -61,7 +61,8 @@ class ZztController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
-            'role' => 'admin'
+            'role' => 'admin',
+            'email_verified_at' => now()
         ]);
 
         // 5. 删除验证码
@@ -142,7 +143,8 @@ class ZztController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']), // Hash加密
-            'role' => $role
+            'role' => $role,
+            'email_verified_at' => now()
         ]);
 
         // 5. 注册成功后删除验证码（防止重复使用）
@@ -269,7 +271,16 @@ class ZztController extends Controller
     {
         $user = Auth::guard('api')->user();
 
-        // 1. 权限检查：只有管理员才能生成邀请码
+        // 1. 检查是否登录
+        if (!$user) {
+            return response()->json([
+                'code' => 401,
+                'message' => '请先登录',
+                'data' => []
+            ], 401);
+        }
+
+        // 2. 权限检查：只有管理员才能生成邀请码
         if ($user->role !== 'admin') {
             return response()->json([
                 'code' => 403,
@@ -669,11 +680,11 @@ class ZztController extends Controller
         // 2. 创建设备
         $device = Device::create($validated);
 
-        // 3. 返回新增的设备信息（201 Created状态码）
+        // 3. 返回新增的设备信息
         return response()->json([
             'code' => 200,
             'message' => '新增设备成功',
             'data' => $device
-        ], 201);
+        ], 200);
     }
 }
