@@ -5,15 +5,93 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UpdateBookingRequest;
 use App\Models\Booking;
 use App\Models\Device;
+use App\Models\User;
 use http\Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Http\Requests\CreateBookingRequest;
+use App\Http\Requests\ForgotPasswordRequest;
+use App\Http\Requests\ResetPasswordRequest;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 
 class FmyController extends Controller
 {
+    public function forgotPassword(ForgotPasswordRequest $request)
+    {
+        //忘记密码
+        $email = $request->validated()['email'];
+
+        // 生成6位数字重置码
+        $resetCode = rand(100000, 999999);
+
+        // 存入缓存，有效期10分钟
+        cache()->put('password_reset_' . $email, $resetCode, 600);
+
+        // 发送邮件
+        try {
+            Mail::raw("您的密码重置验证码是：{$resetCode}，10分钟内有效，请勿泄露给他人。如非本人操作，请忽略此邮件。", function ($message) use ($email) {
+                $message->to($email)
+                    ->subject('实验室设备系统 - 密码重置');
+            });
+
+            return response()->json([
+                'code' => 200,
+                'message' => '重置验证码已发送至您的邮箱，请查收',
+                'data' => []
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 500,
+                'message' => '邮件发送失败：' . $e->getMessage(),
+                'data' => []
+            ], 500);
+        }
+    }
+
+    //重置密码
+    public function resetPassword(ResetPasswordRequest $request)
+    {
+        $validated = $request->validated();
+
+        // 1. 验证重置码
+        $cacheCode = cache()->get('password_reset_' . $validated['email']);
+        if (!$cacheCode || $cacheCode != $validated['code']) {
+            return response()->json([
+                'code' => 400,
+                'message' => '验证码错误或已过期',
+                'data' => []
+            ], 400);
+        }
+
+        // 2. 查找用户
+        $user = User::where('email', $validated['email'])->first();
+        if (!$user) {
+            return response()->json([
+                'code' => 404,
+                'message' => '用户不存在',
+                'data' => []
+            ], 404);
+        }
+
+        // 3. 更新密码
+        $user->update([
+            'password' => Hash::make($validated['password'])
+        ]);
+
+        // 4. 删除缓存的重置码
+        cache()->forget('password_reset_' . $validated['email']);
+
+        // 5. 返回成功响应
+        return response()->json([
+            'code' => 200,
+            'message' => '密码重置成功，请使用新密码登录',
+            'data' => []
+        ]);
+    }
+
 
     //1.提交借用申请
     public function createBooking(CreateBookingRequest $request)

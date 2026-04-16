@@ -6,7 +6,9 @@ use App\Http\Controllers\ZztController;
 use App\Http\Controllers\CgjController;
 
 
-// 注意：api.php 自动带有 /api 前缀，不需要再加 prefix('api')
+//注意：api.php 自动带有 /api 前缀，不需要再加 prefix('api')
+//注意：加middleware('auth:api')即需要登录
+//注意：加middleware('admin')即需要管理员权限
 
 // -------------------------- 认证相关接口 --------------------------
 //首次设置管理员（仅当没有管理员时可用）
@@ -19,6 +21,10 @@ Route::post('/auth/sendCode', [ZztController::class, 'sendEmailCode']);
 Route::post('/auth/verify-code', [ZztController::class, 'verifyEmailCode']);
 //登录
 Route::post('/auth/login', [ZztController::class, 'login']);
+//忘记密码 - 发送重置链接
+Route::post('/forgot-password', [FmyController::class, 'forgotPassword']);
+//重置密码
+Route::post('/reset-password', [FmyController::class, 'resetPassword']);
 
 
 
@@ -57,11 +63,9 @@ Route::post('/devices', [ZztController::class, 'addDevice'])->middleware('admin'
 
 // 需要登录的路由
 Route::group(['middleware' => 'auth:api'], function () {
-    // 1. 设备模块 - 最后4个接口（管理员权限）
-    //修改设备信息
+    // 1. 设备模块（管理员权限）
+    //修改设备信息（包含状态修改）
     Route::put('/devices/{id}',[CgjController::class,'updateDevice'])->middleware('admin');
-    //修改设备状态
-    Route::put('/devices/{id}/status', [CgjController::class, 'updateDeviceStatus'])->middleware('admin');
     //删除设备
     Route::delete('/devices/{id}', [CgjController::class, 'deleteDevice'])->middleware('admin');
     //设备使用统计
