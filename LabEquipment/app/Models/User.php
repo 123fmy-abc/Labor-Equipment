@@ -14,7 +14,7 @@ use Tymon\JWTAuth\Contracts\JWTSubject;
 
 //#[Fillable(['name', 'email', 'password'])]
 //#[Hidden(['password', 'remember_token'])]
-abstract class User extends Authenticatable implements JWTSubject
+class User extends Authenticatable implements JWTSubject
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
@@ -34,7 +34,6 @@ abstract class User extends Authenticatable implements JWTSubject
     protected $fillable = [
         'name',
         'email',
-        'code',
         'password',
         'account',
         'role',
@@ -71,5 +70,13 @@ abstract class User extends Authenticatable implements JWTSubject
     public function getJWTCustomClaims()
     {
         return [];
+    }
+
+    /**
+     * 检查用户是否为管理员
+     */
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
     }
 }
