@@ -171,13 +171,21 @@ class CgjController extends Controller
      */
     public function getCategories()
     {
-        $categories = Category::withCount('devices')->get();
+        try {
+            // 临时方案：先不统计设备数量
+            $categories = Category::all();
 
-        return response()->json([
-            'code' => 200,
-            'message' => '获取成功',
-            'data' => $categories
-        ]);
+            return response()->json([
+                'code' => 200,
+                'message' => '获取成功',
+                'data' => $categories
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 500,
+                'message' => '获取失败：' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -208,25 +216,31 @@ class CgjController extends Controller
      */
     public function createCategory(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:125|unique:categories'
-        ]);
+        try {
+            // 验证输入
+            $request->validate([
+                'name' => 'required|string|max:255',
+                'description' => 'nullable|string', // 允许为空
+            ]);
 
-        if ($validator->fails()) {
+            // 创建分类，如果没有提供 description，使用空字符串
+            $category = Category::create([
+                'name' => $request->name,
+                'description' => $request->description ?? '', // 如果没传，默认为空字符串
+                // 如果有其他字段，也在这里添加
+            ]);
+
             return response()->json([
-                'code' => 422,
-                'message' => '验证失败',
-                'errors' => $validator->errors()
-            ], 422);
+                'code' => 200,
+                'message' => '创建成功',
+                'data' => $category
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 500,
+                'message' => '创建失败：' . $e->getMessage()
+            ], 500);
         }
-
-        $category = Category::create($request->only('name'));
-
-        return response()->json([
-            'code' => 200,
-            'message' => '添加成功',
-            'data' => $category
-        ]);
     }
 
     /**
@@ -245,7 +259,8 @@ class CgjController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:125|unique:categories,name,' . $id
+            'name' => 'sometimes|required|string|max:125|unique:categories,name,' . $id,
+            'description' => 'nullable|string',  // 添加 description 验证
         ]);
 
         if ($validator->fails()) {
@@ -256,14 +271,20 @@ class CgjController extends Controller
             ], 422);
         }
 
-        $category->name = $request->name;
+        // 只更新传入的字段
+        if ($request->has('name')) {
+            $category->name = $request->name;
+        }
+        if ($request->has('description')) {
+            $category->description = $request->description;
+        }
         $category->save();
 
         return response()->json([
             'code' => 200,
             'message' => '修改成功',
             'data' => $category
-        ]);
+        ], 200);
     }
 
     /**
