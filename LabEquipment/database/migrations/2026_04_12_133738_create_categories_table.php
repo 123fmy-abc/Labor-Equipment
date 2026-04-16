@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('categories', function (Blueprint $table) {
             $table->id();
             $table->string('name')->unique()->comment('分类名称，如：电子仪器、光学设备');
-            $table->string('description');
+            $table->string('description')->comment('分类描述')->nullable();
             $table->softDeletes();
             $table->timestamps();
         });
