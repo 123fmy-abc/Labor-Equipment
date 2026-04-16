@@ -19,6 +19,7 @@ return new class extends Migration
 
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            $table->string('invite_code'); // 邀请码
             $table->enum('role', ['user', 'admin'])->default('user')->comment('角色：学生/管理员');
             $table->rememberToken();
             $table->timestamps();

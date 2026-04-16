@@ -12,6 +12,7 @@
         "symfony/console": "^7.1.0",
         "symfony/var-dumper": "^7.1.0",
         "tymon/jwt-auth": "*"
+        "tymon/jwt-auth": "^2.3"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
