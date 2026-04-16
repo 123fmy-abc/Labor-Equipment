@@ -4,6 +4,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use App\Http\Middleware\AdminMiddleware;  // 添加这一行
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -14,6 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         //
+        // 注册中间件别名
+        $middleware->alias([
+            'admin' => AdminMiddleware::class,  // 添加这一行
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // 自定义未认证异常响应
