@@ -4,40 +4,87 @@ use App\Http\Controllers\FmyController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ZztController;
 use App\Http\Controllers\CgjController;
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-*/
 
-// 所有接口统一用ZztController，按功能分组
-// 注意：api.php 自动带有 /api 前缀，不需要再加 prefix('api')
+
+//注意：api.php 自动带有 /api 前缀，不需要再加 prefix('api')
+//注意：加middleware('auth:api')即需要登录
+//注意：加middleware('admin')即需要管理员权限
 
 // -------------------------- 认证相关接口 --------------------------
-Route::post('/auth/register', [ZztController::class, 'register']); // 1. 注册
-Route::post('/auth/setup-admin', [ZztController::class, 'setupFirstAdmin']); // 0. 首次设置管理员（仅当没有管理员时可用）
-Route::post('/auth/login', [ZztController::class, 'login']); // 2. 登录
-Route::post('/auth/logout', [ZztController::class, 'logout']); // 3. 退出登录
-Route::get('/auth/me', [ZztController::class, 'me']); // 4. 获取当前用户信息
-Route::put('/auth/profile', [ZztController::class, 'updateProfile']); // 5. 修改个人资料
-Route::post('/auth/sendCode', [ZztController::class, 'sendEmailCode']); // 6. 发送邮箱验证码
-Route::post('/auth/verify-code', [ZztController::class, 'verifyEmailCode']); // 7. 校验邮箱验证码
+//首次设置管理员（仅当没有管理员时可用）
+Route::post('/auth/setup-admin', [ZztController::class, 'setupFirstAdmin']);
+//注册
+Route::post('/auth/register', [ZztController::class, 'register']);
+//发送邮箱验证码
+Route::post('/auth/sendCode', [ZztController::class, 'sendEmailCode']);
+//校验邮箱验证码
+Route::post('/auth/verify-code', [ZztController::class, 'verifyEmailCode']);
+//登录
+Route::post('/auth/login', [ZztController::class, 'login']);
+//忘记密码 - 发送重置链接
+Route::post('/forgot-password', [FmyController::class, 'forgotPassword']);
+//重置密码
+Route::post('/reset-password', [FmyController::class, 'resetPassword']);
+
+
+
+Route::middleware('auth:api')->group(function () {
+    //退出登录
+    Route::post('/auth/logout', [ZztController::class, 'logout']);
+    //获取当前用户信息
+    Route::get('/auth/me', [ZztController::class, 'me']);
+    //修改个人资料
+    Route::put('/auth/profile', [ZztController::class, 'updateProfile']);
+});
+
 
 // -------------------------- 邀请码管理接口（仅管理员） --------------------------
-Route::post('/admin/invite-codes', [ZztController::class, 'generateInviteCode']); // 生成邀请码
-Route::get('/admin/invite-codes', [ZztController::class, 'listInviteCodes']); // 获取邀请码列表
-Route::delete('/admin/invite-codes/{id}', [ZztController::class, 'deleteInviteCode']); // 删除邀请码
+Route::middleware(['auth:api', 'admin'])->group(function () {
+    //生成邀请码
+    Route::post('/admin/invite-codes', [ZztController::class, 'generateInviteCode']);
+    //获取邀请码列表
+    Route::get('/admin/invite-codes', [ZztController::class, 'listInviteCodes']);
+    //删除邀请码
+    Route::delete('/admin/invite-codes/{id}', [ZztController::class, 'deleteInviteCode']);
+});
+
 
 // -------------------------- 设备相关接口 --------------------------
-Route::get('/devices', [ZztController::class, 'getDeviceList']); // 8. 获取设备列表
-Route::get('/devices/available', [ZztController::class, 'getAvailableDeviceList']); // 9. 获取可借设备列表
-Route::get('/devices/{id}', [ZztController::class, 'getDeviceDetail']); // 10. 获取设备详情
-Route::post('/devices', [ZztController::class, 'addDevice']); // 11. 新增设备
-Route::post('/devices', [ZztController::class, 'addDevice']); // 11. 新增设备（仅管理员）
+//获取设备列表
+Route::get('/devices', [ZztController::class, 'getDeviceList']);
+//获取可借设备列表
+Route::get('/devices/available', [ZztController::class, 'getAvailableDeviceList']);
+//获取设备详情
+Route::get('/devices/{id}', [ZztController::class, 'getDeviceDetail']);
+//新增设备
+Route::post('/devices', [ZztController::class, 'addDevice'])->middleware('admin');
 
 
 
+// 需要登录的路由
+Route::group(['middleware' => 'auth:api'], function () {
+    // 1. 设备模块（管理员权限）
+    //修改设备信息（包含状态修改）
+    Route::put('/devices/{id}',[CgjController::class,'updateDevice'])->middleware('admin');
+    //删除设备
+    Route::delete('/devices/{id}', [CgjController::class, 'deleteDevice'])->middleware('admin');
+    //设备使用统计
+    Route::get('/devices/stats', [CgjController::class, 'deviceStats'])->middleware('admin');
 
+    // 2. 分类模块 - 所有接口
+    //获取全部分类
+    Route::get('/categories', [CgjController::class, 'getCategories']);
+    //获取单个分类
+    Route::get('/categories/{id}', [CgjController::class, 'getCategory']);
+    //新增分类
+    Route::post('/categories', [CgjController::class, 'createCategory'])->middleware('admin');
+    //修改分类
+    Route::put('/categories/{id}', [CgjController::class, 'updateCategory'])->middleware('admin');
+    //删除分类
+    Route::delete('/categories/{id}', [CgjController::class, 'deleteCategory'])->middleware('admin');
+    //获取分类下的设备
+    Route::get('/categories/{id}/devices', [CgjController::class, 'getCategoryDevices']);
+});
 
 
 
@@ -85,32 +132,3 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
 
 
 
-// 需要登录的路由
-Route::group(['middleware' => 'auth:api'], function () {
-    // 1. 设备模块 - 最后4个接口（管理员权限）
-    //修改设备信息
-    Route::put('/devices/{id}',[CgjController::class,'updateDevice'])->middleware('admin');
-    //修改设备状态
-    Route::put('/devices/{id}/status', [CgjController::class, 'updateDeviceStatus'])->middleware('admin');
-    //删除设备
-    Route::delete('/devices/{id}', [CgjController::class, 'deleteDevice'])->middleware('admin');
-    //设备使用统计
-    Route::get('/devices/stats', [CgjController::class, 'deviceStats'])->middleware('admin');
-
-    // 2. 分类模块 - 所有接口
-    //获取全部分类
-    Route::get('/categories', [CgjController::class, 'getCategories']);
-    //获取单个分类
-    Route::get('/categories/{id}', [CgjController::class, 'getCategory']);
-    //新增分类
-    Route::post('/categories', [CgjController::class, 'createCategory'])->middleware('admin');
-    //修改分类
-    Route::put('/categories/{id}', [CgjController::class, 'updateCategory'])->middleware('admin');
-    //删除分类
-    Route::delete('/categories/{id}', [CgjController::class, 'deleteCategory'])->middleware('admin');
-    //获取分类下的设备
-    Route::get('/categories/{id}/devices', [CgjController::class, 'getCategoryDevices']);
-    //3.借用模块-第1个接口
-    //提交借用申请
-    Route::post('/bookings',[CgjController::class,'createBooking']);
-});

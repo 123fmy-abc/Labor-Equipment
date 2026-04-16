@@ -18,7 +18,7 @@ class ZztController extends Controller
 {
     // 中间件已移至路由文件中定义
 
-    // ================================== 0. 首次设置管理员（仅当没有管理员时可用） ==================================
+    // ================================== 首次设置管理员（仅当没有管理员时可用） ==================================
     /**
      * 接口功能：首次设置管理员，仅当系统中没有管理员时可用
      * 请求参数：account, name, email, password, password_confirmation, code(验证码)
@@ -41,8 +41,20 @@ class ZztController extends Controller
             'account' => 'required|string|unique:users,account',
             'name' => 'required|string|max:50',
             'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:6|confirmed',
+            'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^[a-zA-Z][a-zA-Z0-9]+$/'],
             'code' => 'required|string'
+        ], [
+            'account.required' => '账号不能为空',
+            'account.unique' => '该账号已被注册',
+            'name.required' => '姓名不能为空',
+            'email.required' => '邮箱不能为空',
+            'email.email' => '邮箱格式不正确',
+            'email.unique' => '该邮箱已被注册',
+            'password.required' => '密码不能为空',
+            'password.min' => '密码至少8位',
+            'password.confirmed' => '两次密码不一致',
+            'password.regex' => '密码必须以英文字母开头，且只能包含英文字母和数字',
+            'code.required' => '验证码不能为空',
         ]);
 
         // 3. 验证邮箱验证码
@@ -69,7 +81,9 @@ class ZztController extends Controller
         cache()->forget('email_code_' . $validated['email']);
 
         // 6. 生成JWT Token
-        $token = Auth::guard('api')->login($user);
+        /** @var \Tymon\JWTAuth\JWTGuard $auth */
+        $auth = Auth::guard('api');
+        $token = $auth->login($user);
 
         // 7. 返回成功响应
         return response()->json([
@@ -88,6 +102,7 @@ class ZztController extends Controller
         ]);
     }
 
+    
     // ================================== 1. 用户注册（含管理员邀请码） ==================================
     /**
      * 接口功能：用户注册，支持管理员邀请码，需要邮箱验证码
