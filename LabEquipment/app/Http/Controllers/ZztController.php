@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Device;
+use App\Models\InviteCode;
+use App\Http\Requests\RegisterRequest;
+use App\Http\Requests\SendCodeRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -13,55 +16,127 @@ use Illuminate\Support\Str;
 
 class ZztController extends Controller
 {
-    // -------------------------- 构造函数：统一中间件配置 --------------------------
-    public function __construct()
+    // 中间件已移至路由文件中定义
+
+    // ================================== 0. 首次设置管理员（仅当没有管理员时可用） ==================================
+    /**
+     * 接口功能：首次设置管理员，仅当系统中没有管理员时可用
+     * 请求参数：account, name, email, password, password_confirmation, code(验证码)
+     * 注意：不需要邀请码，但系统中必须没有管理员才能使用
+     */
+    public function setupFirstAdmin(Request $request)
     {
-        // 1. 需要登录才能访问的接口（除了注册、登录、发验证码、验验证码、设备列表/可借/详情）
-        $this->middleware('auth:api')->only([
-            'logout', 'me', 'updateProfile', 'getDeviceList', 'addDevice'
+        // 1. 检查是否已有管理员
+        $adminExists = User::where('role', 'admin')->exists();
+        if ($adminExists) {
+            return response()->json([
+                'code' => 403,
+                'message' => '系统中已有管理员，请使用邀请码注册',
+                'data' => []
+            ], 403);
+        }
+
+        // 2. 验证参数
+        $validated = $request->validate([
+            'account' => 'required|string|unique:users,account',
+            'name' => 'required|string|max:50',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:6|confirmed',
+            'code' => 'required|string'
         ]);
-        // 2. 仅管理员可访问的接口（新增设备）
-        $this->middleware('admin')->only(['addDevice']);
+
+        // 3. 验证邮箱验证码
+        $cacheCode = cache()->get('email_code_' . $validated['email']);
+        if (!$cacheCode || $cacheCode != $request->input('code')) {
+            return response()->json([
+                'code' => 400,
+                'message' => '验证码错误或已过期',
+                'data' => []
+            ], 400);
+        }
+
+        // 4. 创建管理员用户
+        $user = User::create([
+            'account' => $validated['account'],
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
+            'role' => 'admin'
+        ]);
+
+        // 5. 删除验证码
+        cache()->forget('email_code_' . $validated['email']);
+
+        // 6. 生成JWT Token
+        $token = Auth::guard('api')->login($user);
+
+        // 7. 返回成功响应
+        return response()->json([
+            'code' => 200,
+            'message' => '管理员注册成功',
+            'data' => [
+                'token' => $token,
+                'user' => [
+                    'id' => $user->id,
+                    'account' => $user->account,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role
+                ]
+            ]
+        ]);
     }
 
     // ================================== 1. 用户注册（含管理员邀请码） ==================================
     /**
-     * 接口功能：用户注册，支持管理员邀请码
-     * 请求参数：account(学号/工号), name, email, password, password_confirmation, invite_code(可选)
+     * 接口功能：用户注册，支持管理员邀请码，需要邮箱验证码
+     * 请求参数：account(学号/工号), name, email, password, password_confirmation, code(验证码), invite_code(可选)
      * 邀请码逻辑：输入正确的ADMIN_INVITE_CODE → 角色设为admin；否则默认user
      */
-    public function register(Request $request)
+    public function register(RegisterRequest $request)
     {
-        // 1. 验证请求参数（规则：账号唯一、邮箱唯一、密码确认、邀请码可选）
-        $validated = $request->validate([
-            'account' => 'required|string|unique:users|max:20',
-            'name' => 'required|string|max:50',
-            'email' => 'required|email|unique:users',
-            'password' => 'required|string|min:6|confirmed', // password_confirmation 必须和password一致
-            'invite_code' => 'nullable|string' // 管理员邀请码，可选填
-        ]);
+        // 1. 获取已验证的数据（FormRequest 自动验证）
+        $validated = $request->validated();
 
-        // 2. 【核心】邀请码验证逻辑
+        // 2. 【新增】验证邮箱验证码
+        $cacheCode = cache()->get('email_code_' . $validated['email']);
+        if (!$cacheCode || $cacheCode != $request->input('code')) {
+            return response()->json([
+                'code' => 400,
+                'message' => '验证码错误或已过期',
+                'data' => []
+            ], 400);
+        }
+
+        // 3. 【核心】邀请码验证逻辑（新版：数据库存储的邀请码）
         $role = 'user'; // 默认角色：普通用户
-        // 从.env读取管理员邀请码，默认值ADMIN_SECRET_888
-        $adminInviteCode = env('ADMIN_INVITE_CODE', 'ADMIN_SECRET_888');
 
         // 如果用户填写了邀请码，进行验证
         if ($request->filled('invite_code')) {
-            if ($request->invite_code === $adminInviteCode) {
-                // 邀请码正确 → 角色设为管理员
-                $role = 'admin';
-            } else {
-                // 邀请码错误 → 仍允许注册，但角色保持user，返回提示
+            $inviteCode = InviteCode::where('code', $request->invite_code)->first();
+
+            if (!$inviteCode) {
                 return response()->json([
-                    'code' => 200,
-                    'message' => '邀请码错误，已注册为普通用户',
+                    'code' => 400,
+                    'message' => '邀请码不存在',
                     'data' => []
-                ]);
+                ], 400);
             }
+
+            if (!$inviteCode->isValid()) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '邀请码已过期或已达到使用次数上限',
+                    'data' => []
+                ], 400);
+            }
+
+            // 邀请码有效 → 使用邀请码并设置角色
+            $inviteCode->use();
+            $role = $inviteCode->role;
         }
 
-        // 3. 创建用户（密码加密存储，绝对不能明文存！）
+        // 4. 创建用户（密码加密存储，绝对不能明文存！）
         $user = User::create([
             'account' => $validated['account'],
             'name' => $validated['name'],
@@ -70,10 +145,13 @@ class ZztController extends Controller
             'role' => $role
         ]);
 
-        // 4. 生成JWT Token（登录态）
+        // 5. 注册成功后删除验证码（防止重复使用）
+        cache()->forget('email_code_' . $validated['email']);
+
+        // 6. 生成JWT Token（登录态）
         $token = Auth::login($user);
 
-        // 5. 返回成功响应（不返回密码，只返回必要信息）
+        // 7. 返回成功响应（不返回密码，只返回必要信息）
         return response()->json([
             'code' => 200,
             'message' => '注册成功',
@@ -105,7 +183,7 @@ class ZztController extends Controller
 
         // 2. 验证账号密码（JWT Auth的attempt方法）
         $credentials = $request->only('account', 'password');
-        $token = Auth::attempt($credentials);
+        $token = Auth::guard('api')->attempt($credentials);
 
         // 3. 账号密码错误，抛出验证异常
         if (!$token) {
@@ -115,7 +193,7 @@ class ZztController extends Controller
         }
 
         // 4. 获取当前登录用户信息
-        $user = Auth::user();
+        $user = Auth::guard('api')->user();
 
         // 5. 返回成功响应
         return response()->json([
@@ -142,7 +220,7 @@ class ZztController extends Controller
     public function logout()
     {
         // 销毁当前用户的Token
-        Auth::logout();
+        Auth::guard('api')->logout();
 
         return response()->json([
             'code' => 200,
@@ -158,7 +236,7 @@ class ZztController extends Controller
      */
     public function me()
     {
-        $user = Auth::user();
+        $user = Auth::guard('api')->user();
 
         return response()->json([
             'code' => 200,
@@ -179,9 +257,149 @@ class ZztController extends Controller
      * 请求头：Authorization: Bearer {token}
      * 请求参数：name(可选), email(可选), password(可选), password_confirmation(可选), old_password(改密码必填)
      */
+
+    // ================================== 6. 生成邀请码（仅超级管理员） ==================================
+    /**
+     * 接口功能：生成新的邀请码
+     * 请求头：Authorization: Bearer {token}
+     * 请求参数：role(可选,默认admin), max_uses(可选,默认1), expire_days(可选,默认30天)
+     * 权限：仅超级管理员(role=admin)
+     */
+    public function generateInviteCode(Request $request)
+    {
+        $user = Auth::guard('api')->user();
+
+        // 1. 权限检查：只有管理员才能生成邀请码
+        if ($user->role !== 'admin') {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权限生成邀请码',
+                'data' => []
+            ], 403);
+        }
+
+        // 2. 验证参数
+        $validated = $request->validate([
+            'role' => 'nullable|in:admin,user',
+            'max_uses' => 'nullable|integer|min:1|max:100',
+            'expire_days' => 'nullable|integer|min:1|max:365'
+        ]);
+
+        // 3. 生成邀请码
+        $inviteCode = InviteCode::createCode(
+            createdBy: $user->id,
+            role: $validated['role'] ?? 'admin',
+            maxUses: $validated['max_uses'] ?? 1,
+            expireDays: $validated['expire_days'] ?? 30
+        );
+
+        return response()->json([
+            'code' => 200,
+            'message' => '邀请码生成成功',
+            'data' => [
+                'invite_code' => $inviteCode->code,
+                'role' => $inviteCode->role,
+                'max_uses' => $inviteCode->max_uses,
+                'expires_at' => $inviteCode->expires_at?->format('Y-m-d H:i:s'),
+                'created_at' => $inviteCode->created_at->format('Y-m-d H:i:s')
+            ]
+        ]);
+    }
+
+    // ================================== 7. 获取邀请码列表（仅超级管理员） ==================================
+    /**
+     * 接口功能：获取所有邀请码列表
+     * 请求头：Authorization: Bearer {token}
+     * 权限：仅超级管理员(role=admin)
+     */
+    public function listInviteCodes()
+    {
+        $user = Auth::guard('api')->user();
+
+        // 1. 权限检查
+        if ($user->role !== 'admin') {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权限查看邀请码',
+                'data' => []
+            ], 403);
+        }
+
+        // 2. 获取邀请码列表
+        $inviteCodes = InviteCode::with('creator:id,account,name')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(function ($code) {
+                return [
+                    'id' => $code->id,
+                    'code' => $code->code,
+                    'role' => $code->role,
+                    'max_uses' => $code->max_uses,
+                    'used_count' => $code->used_count,
+                    'expires_at' => $code->expires_at?->format('Y-m-d H:i:s'),
+                    'is_valid' => $code->isValid(),
+                    'created_by' => $code->creator?->name ?? '未知',
+                    'created_at' => $code->created_at->format('Y-m-d H:i:s'),
+                    'used_at' => $code->used_at?->format('Y-m-d H:i:s')
+                ];
+            });
+
+        return response()->json([
+            'code' => 200,
+            'message' => '获取邀请码列表成功',
+            'data' => $inviteCodes
+        ]);
+    }
+
+    // ================================== 8. 删除邀请码（仅超级管理员） ==================================
+    /**
+     * 接口功能：删除邀请码
+     * 请求头：Authorization: Bearer {token}
+     * 请求参数：id(邀请码ID)
+     * 权限：仅超级管理员(role=admin)
+     */
+    public function deleteInviteCode(Request $request, $id)
+    {
+        $user = Auth::guard('api')->user();
+
+        // 1. 权限检查
+        if ($user->role !== 'admin') {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权限删除邀请码',
+                'data' => []
+            ], 403);
+        }
+
+        // 2. 查找并删除邀请码
+        $inviteCode = InviteCode::find($id);
+
+        if (!$inviteCode) {
+            return response()->json([
+                'code' => 404,
+                'message' => '邀请码不存在',
+                'data' => []
+            ], 404);
+        }
+
+        $inviteCode->delete();
+
+        return response()->json([
+            'code' => 200,
+            'message' => '邀请码删除成功',
+            'data' => []
+        ]);
+    }
+
+    // ================================== 9. 修改个人资料 ==================================
+    /**
+     * 接口功能：修改个人信息/密码
+     * 请求头：Authorization: Bearer {token}
+     * 请求参数：name(可选), email(可选), password(可选), password_confirmation(可选), old_password(改密码必填)
+     */
     public function updateProfile(Request $request)
     {
-        $user = Auth::user();
+        $user = Auth::guard('api')->user();
 
         // 1. 验证参数（改密码时必须验证旧密码）
         $validated = $request->validate([
@@ -234,23 +452,21 @@ class ZztController extends Controller
      * 接口功能：发送6位数字邮箱验证码，有效期5分钟
      * 请求参数：email(邮箱)
      */
-    public function sendEmailCode(Request $request)
+    public function sendEmailCode(SendCodeRequest $request)
     {
-        // 1. 验证邮箱格式
-        $request->validate([
-            'email' => 'required|email'
-        ]);
+        // 1. 获取已验证的邮箱（FormRequest 自动验证）
+        $email = $request->validated()['email'];
 
         // 2. 生成6位随机验证码
         $code = rand(100000, 999999);
 
         // 3. 把验证码存入缓存（key=email_code_邮箱，有效期300秒=5分钟）
-        cache()->put('email_code_' . $request->email, $code, 300);
+        cache()->put('email_code_' . $email, $code, 300);
 
         // 4. 发送邮件（try-catch捕获异常，避免邮件服务崩溃导致接口报错）
         try {
-            Mail::raw("您的实验室设备系统验证码是：{$code}，5分钟内有效，请勿泄露给他人。", function ($message) use ($request) {
-                $message->to($request->email)
+            Mail::raw("您的实验室设备系统验证码是：{$code}，5分钟内有效，请勿泄露给他人。", function ($message) use ($email) {
+                $message->to($email)
                     ->subject('实验室设备系统 - 邮箱验证码');
             });
 
