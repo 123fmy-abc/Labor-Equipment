@@ -544,8 +544,8 @@ class ZztController extends Controller
             ]);
         }
 
-        // 4. 验证成功，删除缓存（防止重复使用）
-        cache()->forget('email_code_' . $request->email);
+        // 4. 验证成功，不删除缓存（留给注册时使用）
+        // cache()->forget('email_code_' . $request->email);
 
         return response()->json([
             'code' => 200,
@@ -630,11 +630,6 @@ class ZztController extends Controller
         // 5. 分页查询
         $devices = $query->paginate($limit, ['*'], 'page', $page);
 
-        // 6. 补充可借数量
-        $devices->getCollection()->transform(function ($device) {
-            $device->available_qty = $device->available_qty;
-            return $device;
-        });
 
         // 7. 返回响应
         return response()->json([
