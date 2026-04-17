@@ -519,40 +519,6 @@ class ZztController extends Controller
         }
     }
 
-    // ================================== 7. 校验邮箱验证码 ==================================
-    /**
-     * 接口功能：校验用户输入的邮箱验证码是否正确
-     * 请求参数：email(邮箱), code(验证码)
-     */
-    public function verifyEmailCode(Request $request)
-    {
-        // 1. 验证参数
-        $request->validate([
-            'email' => 'required|email',
-            'code' => 'required|string|size:6' // 必须是6位
-        ]);
-
-        // 2. 从缓存中取出正确的验证码
-        $cacheCode = cache()->get('email_code_' . $request->email);
-
-        // 3. 验证码不存在（过期）或不匹配
-        if (!$cacheCode || $cacheCode != $request->code) {
-            return response()->json([
-                'code' => 400,
-                'message' => '验证码错误或已过期，请重新发送',
-                'data' => []
-            ]);
-        }
-
-        // 4. 验证成功，不删除缓存（留给注册时使用）
-        // cache()->forget('email_code_' . $request->email);
-
-        return response()->json([
-            'code' => 200,
-            'message' => '验证码验证成功',
-            'data' => []
-        ]);
-    }
 
     // ================================== 8. 获取设备列表（全部设备） ==================================
     /**

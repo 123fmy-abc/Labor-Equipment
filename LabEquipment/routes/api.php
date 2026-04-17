@@ -17,8 +17,6 @@ Route::post('/auth/setup-admin', [ZztController::class, 'setupFirstAdmin']);
 Route::post('/auth/register', [ZztController::class, 'register']);
 //发送邮箱验证码
 Route::post('/auth/sendCode', [ZztController::class, 'sendEmailCode']);
-//校验邮箱验证码
-Route::post('/auth/verify-code', [ZztController::class, 'verifyEmailCode']);
 //登录
 Route::post('/auth/login', [ZztController::class, 'login']);
 //忘记密码 - 发送重置链接
@@ -35,7 +33,10 @@ Route::middleware('auth:api')->group(function () {
     Route::get('/auth/me', [ZztController::class, 'me']);
     //修改个人资料
     Route::put('/auth/profile', [ZztController::class, 'updateProfile']);
+    //记住用户
+    Route::post('/remember-me', [FmyController::class, 'rememberMe']);
 });
+
 
 
 // -------------------------- 邀请码管理接口（仅管理员） --------------------------
@@ -50,14 +51,17 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
 
 
 // -------------------------- 设备相关接口 --------------------------
+// 需要登录的路由
+Route::group(['middleware' => 'auth:api'], function () {
 //获取设备列表
-Route::get('/devices', [ZztController::class, 'getDeviceList']);
+    Route::get('/devices', [ZztController::class, 'getDeviceList']);
 //获取可借设备列表
-Route::get('/devices/available', [ZztController::class, 'getAvailableDeviceList']);
+    Route::get('/devices/available', [ZztController::class, 'getAvailableDeviceList']);
 //获取设备详情
-Route::get('/devices/{id}', [ZztController::class, 'getDeviceDetail']);
+    Route::get('/devices/{id}', [ZztController::class, 'getDeviceDetail']);
 //新增设备
-Route::post('/devices', [ZztController::class, 'addDevice'])->middleware('admin');
+    Route::post('/devices', [ZztController::class, 'addDevice'])->middleware('admin');
+});
 
 
 

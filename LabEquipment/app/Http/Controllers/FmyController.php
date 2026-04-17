@@ -859,4 +859,47 @@ class FmyController extends Controller
         ]);
     }
 
+
+
+
+
+    //记住用户，延长Token有效期（需要登录）返回：新的长期Token
+    public function rememberMe(Request $request)
+    {
+        try {
+            $user = auth()->user();
+
+            if (!$user) {
+                return response()->json([
+                    'code' => 401,
+                    'message' => '请先登录后再操作',
+                    'data' => null
+                ], 401);
+            }
+
+            // 1. 将当前Token加入黑名单（使其失效）
+            auth()->logout();
+
+            // 2. 生成新的长期Token（30天有效期）
+            $token = auth()->setTTL(60 * 24 * 30)->login($user);
+
+            return response()->json([
+                'code' => 200,
+                'message' => '记住用户成功，登录状态已延长，旧Token已失效',
+                'data' => [
+                    'token' => $token,
+                    'token_type' => 'Bearer',
+                    'expires_in' => 60 * 24 * 30, // 30天（分钟）
+                    'expires_at' => now()->addDays(30)->format('Y-m-d H:i:s'),
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 500,
+                'message' => '记住用户失败：' . $e->getMessage(),
+                'data' => null
+            ], 500);
+        }
+    }
+
 }
