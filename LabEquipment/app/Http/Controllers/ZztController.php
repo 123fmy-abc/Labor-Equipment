@@ -80,17 +80,11 @@ class ZztController extends Controller
         // 5. 删除验证码
         cache()->forget('email_code_' . $validated['email']);
 
-        // 6. 生成JWT Token
-        /** @var \Tymon\JWTAuth\JWTGuard $auth */
-        $auth = Auth::guard('api');
-        $token = $auth->login($user);
-
-        // 7. 返回成功响应
+        // 6. 返回成功响应（不返回Token，需要重新登录）
         return response()->json([
             'code' => 200,
-            'message' => '管理员注册成功',
+            'message' => '管理员注册成功，请使用账号密码登录',
             'data' => [
-                'token' => $token,
                 'user' => [
                     'id' => $user->id,
                     'account' => $user->account,
