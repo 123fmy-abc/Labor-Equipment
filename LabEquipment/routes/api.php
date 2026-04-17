@@ -9,6 +9,7 @@ use App\Http\Controllers\CgjController;
 //注意：api.php 自动带有 /api 前缀，不需要再加 prefix('api')
 //注意：加middleware('auth:api')即需要JWT登录
 //注意：加middleware('admin')即需要管理员权限
+//注意：加middleware('sso')即需要单点认证
 
 // -------------------------- 认证相关接口 --------------------------
 //首次设置管理员（仅当没有管理员时可用，限制每小时只能调用3次）
@@ -27,7 +28,7 @@ Route::post('/reset-password', [FmyController::class, 'resetPassword']);
 
 
 
-Route::middleware('auth:api')->group(function () {
+Route::middleware(['auth:api','sso'])->group(function () {
     //退出登录
     Route::post('/auth/logout', [ZztController::class, 'logout']);
     //获取当前用户信息
@@ -41,7 +42,7 @@ Route::middleware('auth:api')->group(function () {
 
 
 // -------------------------- 邀请码管理接口（仅管理员） --------------------------
-Route::middleware(['auth:api', 'admin'])->group(function () {
+Route::middleware(['auth:api', 'admin','sso'])->group(function () {
     //生成邀请码
     Route::post('/admin/invite-codes', [ZztController::class, 'generateInviteCode']);
     //获取邀请码列表
@@ -53,7 +54,7 @@ Route::middleware(['auth:api', 'admin'])->group(function () {
 
 // -------------------------- 设备相关接口 --------------------------
 // 需要登录的路由
-Route::group(['middleware' => 'auth:api'], function () {
+Route::group(['middleware' => ['auth:api', 'sso']], function () {
 //获取设备列表
     Route::get('/devices', [ZztController::class, 'getDeviceList']);
 //获取可借设备列表
@@ -67,7 +68,7 @@ Route::group(['middleware' => 'auth:api'], function () {
 
 
 // 需要登录的路由
-Route::group(['middleware' => 'auth:api'], function () {
+Route::group(['middleware' => ['auth:api', 'sso']], function () {
     // 1. 设备模块（管理员权限）
     //修改设备信息（包含状态修改）
     Route::put('/devices/{id}',[CgjController::class,'updateDevice'])->middleware('admin');
@@ -97,7 +98,7 @@ Route::group(['middleware' => 'auth:api'], function () {
 
 
 //------用户端借用模块（需要登录）------
-Route::middleware('auth:api')->group(function () {
+Route::middleware(['auth:api', 'sso'])->group(function () {
     //提交借用申请
     Route::post('/createBooking', [FmyController::class,'createBooking']);
 
@@ -122,7 +123,7 @@ Route::middleware('auth:api')->group(function () {
 
 
 //------- 管理员端(需要登录)-------
-Route::middleware(['auth:api', 'admin'])->group(function () {
+Route::middleware(['auth:api', 'admin','sso'])->group(function () {
     // 获取全部借用记录（支持筛选、搜索、分页）
     Route::get('/bookings', [FmyController::class, 'allBooking']);
 
