@@ -30,6 +30,34 @@ return Application::configure(basePath: dirname(__DIR__))
         // 自定义未认证异常响应
         $exceptions->render(function (AuthenticationException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
+                // 检查是否有前一个异常（JWT错误）
+                $previous = $e->getPrevious();
+                
+                if ($previous instanceof \Tymon\JWTAuth\Exceptions\TokenExpiredException) {
+                    return response()->json([
+                        'code' => 401,
+                        'message' => '登录已过期，请重新登录',
+                        'data' => null
+                    ], 401);
+                }
+                
+                if ($previous instanceof \Tymon\JWTAuth\Exceptions\TokenInvalidException) {
+                    return response()->json([
+                        'code' => 401,
+                        'message' => '登录凭证无效，请重新登录',
+                        'data' => null
+                    ], 401);
+                }
+                
+                if ($previous instanceof \Tymon\JWTAuth\Exceptions\JWTException) {
+                    return response()->json([
+                        'code' => 401,
+                        'message' => '登录凭证错误，请重新登录',
+                        'data' => null
+                    ], 401);
+                }
+                
+                // 没有前一个异常，说明是真的未登录（没有Token）
                 return response()->json([
                     'code' => 401,
                     'message' => '请先登录后再操作',

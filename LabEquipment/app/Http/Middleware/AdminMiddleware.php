@@ -13,7 +13,8 @@ class AdminMiddleware
         // 单点登录验证：检查当前Token是否是最新的
         $user = Auth::guard('api')->user();
         if ($user) {
-            $currentToken = Auth::guard('api')->getToken();
+            // 获取当前Token字符串（从请求头或缓存）
+            $currentToken = $request->bearerToken();
             $cachedToken = cache()->get('user_token_' . $user->id);
             
             // 如果缓存中有Token且与当前Token不匹配，说明已被挤下线
