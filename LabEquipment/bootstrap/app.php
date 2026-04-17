@@ -5,10 +5,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use App\Http\Middleware\AdminMiddleware;
-use Tymon\JWTAuth\Exceptions\TokenExpiredException;
-use Tymon\JWTAuth\Exceptions\TokenInvalidException;
 use Tymon\JWTAuth\Exceptions\JWTException;
-use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -29,37 +27,9 @@ return Application::configure(basePath: dirname(__DIR__))
             return $request->is('api/*') || $request->expectsJson();
         });
 
-        // 自定义未认证异常响应（JWT 验证失败也会进入这里）
+        // 自定义未认证异常响应
         $exceptions->render(function (AuthenticationException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
-                // 检查是否是 JWT 相关的错误
-                $previous = $e->getPrevious();
-                
-                if ($previous instanceof TokenExpiredException) {
-                    return response()->json([
-                        'code' => 401,
-                        'message' => '登录已过期，请重新登录',
-                        'data' => null
-                    ], 401);
-                }
-                
-                if ($previous instanceof TokenInvalidException) {
-                    return response()->json([
-                        'code' => 401,
-                        'message' => '登录凭证无效，请重新登录',
-                        'data' => null
-                    ], 401);
-                }
-                
-                if ($previous instanceof JWTException) {
-                    return response()->json([
-                        'code' => 401,
-                        'message' => '登录凭证错误，请重新登录',
-                        'data' => null
-                    ], 401);
-                }
-                
-                // 默认：未登录
                 return response()->json([
                     'code' => 401,
                     'message' => '请先登录后再操作',
@@ -68,29 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
             }
         });
 
-        // 自定义 JWT Token 过期异常
-        $exceptions->render(function (TokenExpiredException $e, $request) {
-            if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '登录已过期，请重新登录',
-                    'data' => null
-                ], 401);
-            }
-        });
-
-        // 自定义 JWT Token 无效异常
-        $exceptions->render(function (TokenInvalidException $e, $request) {
-            if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '登录凭证无效，请重新登录',
-                    'data' => null
-                ], 401);
-            }
-        });
-
-        // 自定义 JWT 其他异常（Token为空等）
+        // 自定义 JWT 异常响应
         $exceptions->render(function (JWTException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
                 $message = $e->getMessage();
@@ -117,6 +65,22 @@ return Application::configure(basePath: dirname(__DIR__))
                     'message' => '登录凭证错误，请重新登录',
                     'data' => null
                 ], 401);
+            }
+        });
+
+        // 自定义限流异常响应
+        $exceptions->render(function (ThrottleRequestsException $e, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                $retryAfter = $e->getHeaders()['Retry-After'] ?? 60;
+                
+                return response()->json([
+                    'code' => 429,
+                    'message' => '请求过于频繁，请稍后再试',
+                    'data' => [
+                        'retry_after' => $retryAfter,
+                        'retry_after_seconds' => $retryAfter,
+                    ]
+                ], 429);
             }
         });
     })

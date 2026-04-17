@@ -194,7 +194,19 @@ class ZztController extends Controller
         /** @var User $user */
         $user = Auth::guard('api')->user();
 
-        // 5. 返回成功响应
+        // 5. 单点登录：将之前的Token加入黑名单
+        $previousToken = cache()->get('user_token_' . $user->id);
+        if ($previousToken) {
+            try {
+                Auth::guard('api')->setToken($previousToken)->invalidate();
+            } catch (\Exception $e) {
+                // 忽略已过期或无效的Token错误
+            }
+        }
+        // 存储新Token到缓存（30天有效期）
+        cache()->put('user_token_' . $user->id, $token, now()->addDays(30));
+
+        // 6. 返回成功响应
         return response()->json([
             'code' => 200,
             'message' => '登录成功',
@@ -218,6 +230,12 @@ class ZztController extends Controller
      */
     public function logout()
     {
+        // 获取当前用户并清除Token缓存
+        $user = Auth::guard('api')->user();
+        if ($user) {
+            cache()->forget('user_token_' . $user->id);
+        }
+
         // 销毁当前用户的Token
         Auth::guard('api')->logout();
 
@@ -362,28 +380,19 @@ class ZztController extends Controller
         ]);
     }
 
-    // ================================== 8. 删除邀请码（仅超级管理员） ==================================
+    // ================================== 8. 删除邀请码（创建者或超级管理员） ==================================
     /**
      * 接口功能：删除邀请码
      * 请求头：Authorization: Bearer {token}
      * 请求参数：id(邀请码ID)
-     * 权限：仅超级管理员(role=admin)
+     * 权限：创建者本人或超级管理员
      */
     public function deleteInviteCode($id)
     {
         /** @var User $user */
         $user = Auth::guard('api')->user();
 
-        // 1. 权限检查
-        if ($user->role !== 'admin') {
-            return response()->json([
-                'code' => 403,
-                'message' => '无权限删除邀请码',
-                'data' => []
-            ], 403);
-        }
-
-        // 2. 查找并删除邀请码
+        // 1. 查找邀请码
         $inviteCode = InviteCode::find($id);
 
         if (!$inviteCode) {
@@ -394,6 +403,16 @@ class ZztController extends Controller
             ], 404);
         }
 
+        // 2. 权限检查：只能是创建者本人或超级管理员
+        if ($inviteCode->created_by !== $user->id && $user->role !== 'admin') {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权限删除此邀请码，只能删除自己创建的邀请码',
+                'data' => []
+            ], 403);
+        }
+
+        // 3. 删除邀请码
         $inviteCode->delete();
 
         return response()->json([

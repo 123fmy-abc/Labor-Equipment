@@ -867,7 +867,7 @@ class FmyController extends Controller
     public function rememberMe(Request $request)
     {
         try {
-            $user = auth()->user();
+            $user = auth('api')->user();
 
             if (!$user) {
                 return response()->json([
@@ -878,10 +878,13 @@ class FmyController extends Controller
             }
 
             // 1. 将当前Token加入黑名单（使其失效）
-            auth()->logout();
+            auth('api')->logout();
 
             // 2. 生成新的长期Token（30天有效期）
-            $token = auth()->setTTL(60 * 24 * 30)->login($user);
+            $token = auth('api')->setTTL(60 * 24 * 30)->login($user);
+
+            // 3. 更新Token缓存
+            cache()->put('user_token_' . $user->id, $token, now()->addDays(30));
 
             return response()->json([
                 'code' => 200,
