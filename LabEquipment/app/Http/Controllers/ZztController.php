@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class ZztController extends Controller
 {
@@ -198,7 +199,8 @@ class ZztController extends Controller
         $previousToken = cache()->get('user_token_' . $user->id);
         if ($previousToken) {
             try {
-                Auth::guard('api')->setToken($previousToken)->invalidate();
+                // 使用JWTAuth facade使旧Token失效（true表示立即生效）
+                JWTAuth::setToken($previousToken)->invalidate(true);
             } catch (\Exception $e) {
                 // 忽略已过期或无效的Token错误
             }

@@ -7,7 +7,7 @@ use App\Http\Controllers\CgjController;
 
 
 //注意：api.php 自动带有 /api 前缀，不需要再加 prefix('api')
-//注意：加middleware('auth:api')即需要登录
+//注意：加middleware('auth:api')即需要JWT登录
 //注意：加middleware('admin')即需要管理员权限
 
 // -------------------------- 认证相关接口 --------------------------
