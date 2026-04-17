@@ -11,8 +11,9 @@ use App\Http\Controllers\CgjController;
 //注意：加middleware('admin')即需要管理员权限
 
 // -------------------------- 认证相关接口 --------------------------
-//首次设置管理员（仅当没有管理员时可用）
-Route::post('/auth/setup-admin', [ZztController::class, 'setupFirstAdmin']);
+//首次设置管理员（仅当没有管理员时可用，限制每小时只能调用3次）
+Route::post('/auth/setup-admin', [ZztController::class, 'setupFirstAdmin'])
+    ->middleware('throttle:3,60');
 //注册
 Route::post('/auth/register', [ZztController::class, 'register']);
 //发送邮箱验证码

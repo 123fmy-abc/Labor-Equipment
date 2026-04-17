@@ -36,13 +36,12 @@ class ZztController extends Controller
             ], 403);
         }
 
-        // 2. 验证参数
+        // 2. 验证参数（不需要验证码）
         $validated = $request->validate([
             'account' => 'required|string|unique:users,account',
             'name' => 'required|string|max:50',
             'email' => 'required|email|unique:users,email',
             'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^[a-zA-Z][a-zA-Z0-9]+$/'],
-            'code' => 'required|string'
         ], [
             'account.required' => '账号不能为空',
             'account.unique' => '该账号已被注册',
@@ -54,20 +53,9 @@ class ZztController extends Controller
             'password.min' => '密码至少8位',
             'password.confirmed' => '两次密码不一致',
             'password.regex' => '密码必须以英文字母开头，且只能包含英文字母和数字',
-            'code.required' => '验证码不能为空',
         ]);
 
-        // 3. 验证邮箱验证码
-        $cacheCode = cache()->get('email_code_' . $validated['email']);
-        if (!$cacheCode || $cacheCode != $request->input('code')) {
-            return response()->json([
-                'code' => 400,
-                'message' => '验证码错误或已过期',
-                'data' => []
-            ], 400);
-        }
-
-        // 4. 创建管理员用户
+        // 3. 创建管理员用户
         $user = User::create([
             'account' => $validated['account'],
             'name' => $validated['name'],
@@ -77,10 +65,7 @@ class ZztController extends Controller
             'email_verified_at' => now()
         ]);
 
-        // 5. 删除验证码
-        cache()->forget('email_code_' . $validated['email']);
-
-        // 6. 返回成功响应（不返回Token，需要重新登录）
+        // 5. 返回成功响应（不返回Token，需要重新登录）
         return response()->json([
             'code' => 200,
             'message' => '管理员注册成功，请使用账号密码登录',
