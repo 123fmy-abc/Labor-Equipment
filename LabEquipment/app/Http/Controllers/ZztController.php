@@ -166,7 +166,9 @@ class ZztController extends Controller
         cache()->forget('email_code_' . $validated['email']);
 
         // 6. 生成JWT Token（登录态）
-        $token = Auth::login($user);
+        /** @var \Tymon\JWTAuth\JWTGuard $auth */
+        $auth = Auth::guard('api');
+        $token = $auth->login($user);
 
         // 7. 返回成功响应（不返回密码，只返回必要信息）
         return response()->json([
@@ -210,6 +212,7 @@ class ZztController extends Controller
         }
 
         // 4. 获取当前登录用户信息
+        /** @var User $user */
         $user = Auth::guard('api')->user();
 
         // 5. 返回成功响应
@@ -253,6 +256,7 @@ class ZztController extends Controller
      */
     public function me()
     {
+        /** @var User $user */
         $user = Auth::guard('api')->user();
 
         return response()->json([
@@ -284,6 +288,7 @@ class ZztController extends Controller
      */
     public function generateInviteCode(Request $request)
     {
+        /** @var User $user */
         $user = Auth::guard('api')->user();
 
         // 1. 检查是否登录
@@ -340,6 +345,7 @@ class ZztController extends Controller
      */
     public function listInviteCodes()
     {
+        /** @var User $user */
         $user = Auth::guard('api')->user();
 
         // 1. 权限检查
@@ -384,8 +390,9 @@ class ZztController extends Controller
      * 请求参数：id(邀请码ID)
      * 权限：仅超级管理员(role=admin)
      */
-    public function deleteInviteCode(Request $request, $id)
+    public function deleteInviteCode($id)
     {
+        /** @var User $user */
         $user = Auth::guard('api')->user();
 
         // 1. 权限检查
@@ -425,6 +432,7 @@ class ZztController extends Controller
      */
     public function updateProfile(Request $request)
     {
+        /** @var User $user */
         $user = Auth::guard('api')->user();
 
         // 1. 验证参数（改密码时必须验证旧密码）
@@ -436,6 +444,7 @@ class ZztController extends Controller
         ]);
 
         // 2. 如果用户要修改密码，先验证旧密码是否正确
+        $updateData = [];
         if ($request->filled('password')) {
             if (!Hash::check($validated['old_password'], $user->password)) {
                 return response()->json([
@@ -445,19 +454,19 @@ class ZztController extends Controller
                 ]);
             }
             // 旧密码正确，加密新密码
-            $user->password = Hash::make($validated['password']);
+            $updateData['password'] = Hash::make($validated['password']);
         }
 
         // 3. 更新姓名、邮箱（如果有传参）
         if ($request->filled('name')) {
-            $user->name = $validated['name'];
+            $updateData['name'] = $validated['name'];
         }
         if ($request->filled('email')) {
-            $user->email = $validated['email'];
+            $updateData['email'] = $validated['email'];
         }
 
         // 4. 保存修改
-        $user->save();
+        $user->update($updateData);
 
         // 5. 返回更新后的用户信息
         return response()->json([
@@ -575,11 +584,6 @@ class ZztController extends Controller
         // 5. 分页查询
         $devices = $query->paginate($limit, ['*'], 'page', $page);
 
-        // 6. 给每个设备补充「可借数量」字段
-        $devices->getCollection()->transform(function ($device) {
-            $device->available_qty = $device->available_qty;
-            return $device;
-        });
 
         // 7. 返回响应
         return response()->json([
@@ -664,10 +668,7 @@ class ZztController extends Controller
             ]);
         }
 
-        // 3. 补充可借数量
-        $device->available_qty = $device->available_qty;
-
-        // 4. 返回详情
+        // 3. 返回详情（available_qty 通过模型访问器自动计算）
         return response()->json([
             'code' => 200,
             'message' => '获取设备详情成功',
