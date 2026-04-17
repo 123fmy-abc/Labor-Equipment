@@ -10,13 +10,15 @@ class SingleSignOnMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
-        // 获取当前认证用户
-        $user = Auth::guard('api')->user();
+        $guard = Auth::guard('api');
         
-        // 如果用户未登录，直接通过（让auth:api处理）
-        if (!$user) {
+        // 如果用户未登录，直接通过（让 jwt.auth 中间件处理）
+        if (!$guard->check()) {
             return $next($request);
         }
+        
+        // 获取当前认证用户
+        $user = $guard->user();
         
         // 单点登录验证：检查当前Token是否是最新的
         $token = $request->bearerToken();
