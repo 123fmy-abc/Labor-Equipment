@@ -104,17 +104,36 @@ class FmyController extends Controller
         $endDate = $validated['end_date'];
         $purpose = $validated['purpose'];
 
-        // 检查设备是否存在且可用
-        $device = Device::where('id', $deviceId)
-            ->where('status', 'available')
-            ->first();
+        // 检查设备是否存在
+        $device = Device::find($deviceId);
 
         if (!$device) {
             return response()->json([
                 'code' => 404,
-                'message' => '设备不存在或当前不可借用',
+                'message' => '设备不存在',
                 'data' => null
             ], 404);
+        }
+
+        // 检查设备状态
+        if ($device->status === 'maintenance') {
+            return response()->json([
+                'code' => 400,
+                'message' => '设备正在维护中，暂时不可借用',
+                'data' => [
+                    'device_status' => $device->status
+                ]
+            ], 400);
+        }
+
+        if ($device->status === 'disabled') {
+            return response()->json([
+                'code' => 400,
+                'message' => '设备已下架，不可借用',
+                'data' => [
+                    'device_status' => $device->status
+                ]
+            ], 400);
         }
 
         // 检查该时间段内设备库存是否充足
@@ -123,6 +142,23 @@ class FmyController extends Controller
                 'code' => 409,
                 'message' => '该时间段内设备库存不足，请选择其他时间',
                 'data' => null
+            ], 409);
+        }
+
+        // 检查用户是否已对该设备提交过借用申请（状态为 pending 或 approved）
+        $existingBooking = Booking::where('user_id', $userId)
+            ->where('device_id', $deviceId)
+            ->whereIn('status', ['pending', 'approved'])
+            ->first();
+
+        if ($existingBooking) {
+            return response()->json([
+                'code' => 409,
+                'message' => '您已对该设备提交了借用申请，请勿重复申请',
+                'data' => [
+                    'existing_booking_id' => $existingBooking->id,
+                    'status' => $existingBooking->status
+                ]
             ], 409);
         }
 
@@ -162,8 +198,6 @@ class FmyController extends Controller
             ],
         ], 201);
     }
-
-
 
 
     /**
@@ -207,27 +241,40 @@ class FmyController extends Controller
     }
 
 
-
-
-
     //2.取消当前用户指定待审核申请
     public function cancelMyPending(int $id)
     {
         $userId = auth()->id();
 
-        // 查询当前用户的待审核申请
-        $booking = Booking::where('id', $id)
-            ->where('user_id', $userId)
-            ->where('status', 'pending')  // 确保是待审核状态
-            ->first();
+        // 先查询记录是否存在
+        $booking = Booking::find($id);
 
-        // 记录不存在或不是待审核状态
         if (!$booking) {
             return response()->json([
                 'code' => 404,
-                'message' => '借用记录不存在、无权操作或不是待审核状态',
+                'message' => '借用记录不存在',
                 'data' => null
             ], 404);
+        }
+
+        // 检查是否是当前用户的记录
+        if ($booking->user_id !== $userId) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权操作，该借用记录不属于您',
+                'data' => null
+            ], 403);
+        }
+
+        // 检查是否是待审核状态
+        if ($booking->status !== 'pending') {
+            return response()->json([
+                'code' => 403,
+                'message' => '仅待审核状态的申请可取消，当前状态：' . $booking->status,
+                'data' => [
+                    'current_status' => $booking->status
+                ]
+            ], 403);
         }
         //直接删除记录
         $booking->delete();
@@ -235,13 +282,9 @@ class FmyController extends Controller
         return response()->json([
             'code' => 200,
             'message' => '取消成功',
-            'data' =>null
+            'data' => null
         ]);
     }
-
-
-
-
 
 
     //3.修改当前登录用户的指定待审核申请信息
@@ -272,43 +315,116 @@ class FmyController extends Controller
 
         $validated = $request->validated();
 
+        // 检查是否有任何字段被修改
+        $hasChanges = false;
+        $fieldsToCheck = ['device_id', 'start_date', 'end_date', 'purpose', 'category_id'];
+        
+        foreach ($fieldsToCheck as $field) {
+            if (isset($validated[$field])) {
+                // 日期字段需要格式化后比较
+                if (in_array($field, ['start_date', 'end_date'])) {
+                    $oldValue = $booking->$field->format('Y-m-d');
+                    $newValue = $validated[$field];
+                } else {
+                    $oldValue = $booking->$field;
+                    $newValue = $validated[$field];
+                }
+                
+                if ($oldValue != $newValue) {
+                    $hasChanges = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!$hasChanges) {
+            return response()->json([
+                'code' => 200,
+                'message' => '无任何修改',
+                'data' => [
+                    'id' => $booking->id,
+                    'device' => $booking->device ? [
+                        'id' => $booking->device->id,
+                        'name' => $booking->device->name,
+                        'category' => $booking->device->category ? [
+                            'id' => $booking->device->category->id,
+                            'name' => $booking->device->category->name,
+                        ] : null,
+                    ] : null,
+                    'start_date' => $booking->start_date->format('Y-m-d'),
+                    'end_date' => $booking->end_date->format('Y-m-d'),
+                    'purpose' => $booking->purpose,
+                    'status' => $booking->status,
+                ],
+            ]);
+        }
+
         // 如果修改了 device_id 或日期，需要重新检查时间冲突
         if (isset($validated['device_id']) || isset($validated['start_date']) || isset($validated['end_date'])) {//判断是否修改了关键字段
-           //如果传了新设备ID就用新的，否则用原来的
+            //如果传了新设备ID就用新的，否则用原来的
             $deviceId = $validated['device_id'] ?? $booking->device_id;
             $startDate = $validated['start_date'] ?? $booking->start_date->format('Y-m-d');
             $endDate = $validated['end_date'] ?? $booking->end_date->format('Y-m-d');
 
-            // 如果修改了设备，检查新设备的分类是否与原设备一致
+            // 获取当前设备信息
+            $currentDevice = Device::find($deviceId);
+
+            if (!$currentDevice) {
+                return response()->json([
+                    'code' => 404,
+                    'message' => '设备不存在',
+                    'data' => null
+                ], 404);
+            }
+
+            // 如果修改了设备，必须提供 category_id
             if (isset($validated['device_id']) && $deviceId != $booking->device_id) {
-                $oldDevice = Device::with('category')->find($booking->device_id);
-                $newDevice = Device::with('category')->find($deviceId);
-
-                if ($oldDevice && $newDevice) {
-                    $oldCategoryId = $oldDevice->category_id;
-                    $newCategoryId = $newDevice->category_id;
-
-                    if ($oldCategoryId !== $newCategoryId) {
-                        return response()->json([
-                            'code' => 400,
-                            'message' => '新设备与原设备不属于同一分类，请选择同分类的设备',
-                            'data' => [
-                                'old_device' => [
-                                    'id' => $oldDevice->id,
-                                    'name' => $oldDevice->name,
-                                    'category_id' => $oldCategoryId,
-                                    'category_name' => $oldDevice->category->name ?? null,
-                                ],
-                                'new_device' => [
-                                    'id' => $newDevice->id,
-                                    'name' => $newDevice->name,
-                                    'category_id' => $newCategoryId,
-                                    'category_name' => $newDevice->category->name ?? null,
-                                ],
-                            ]
-                        ], 400);
-                    }
+                // 修改设备时必须提供 category_id
+                if (!isset($validated['category_id'])) {
+                    return response()->json([
+                        'code' => 400,
+                        'message' => '修改设备时必须提供 category_id 参数',
+                        'data' => [
+                            'required_param' => 'category_id',
+                            'device_id' => $deviceId,
+                            'device_name' => $currentDevice->name
+                        ]
+                    ], 400);
                 }
+            }
+
+            // 如果提供了 category_id，必须验证与设备的实际分类一致
+            if (isset($validated['category_id'])) {
+                if ($validated['category_id'] != $currentDevice->category_id) {
+                    return response()->json([
+                        'code' => 400,
+                        'message' => '提供的分类ID与设备的实际分类不符',
+                        'data' => [
+                            'provided_category_id' => $validated['category_id'],
+                            'actual_category_id' => $currentDevice->category_id,
+                            'device_name' => $currentDevice->name
+                        ]
+                    ], 400);
+                }
+            }
+
+            // 检查用户是否已有该设备的其他待审核申请（排除当前这条）
+            $existingBooking = Booking::where('user_id', $userId)
+                ->where('device_id', $deviceId)
+                ->where('status', 'pending')
+                ->where('id', '!=', $id)
+                ->first();
+
+            if ($existingBooking) {
+                return response()->json([
+                    'code' => 409,
+                    'message' => '您已有该设备的待审核申请，请勿重复申请',
+                    'data' => [
+                        'existing_booking_id' => $existingBooking->id,
+                        'existing_start_date' => $existingBooking->start_date->format('Y-m-d'),
+                        'existing_end_date' => $existingBooking->end_date->format('Y-m-d'),
+                    ]
+                ], 409);
             }
 
             if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate, $id)) {
@@ -344,14 +460,11 @@ class FmyController extends Controller
                 ] : null,
                 'start_date' => $booking->start_date->format('Y-m-d'),
                 'end_date' => $booking->end_date->format('Y-m-d'),
-                'purpose'=> $booking->purpose,
+                'purpose' => $booking->purpose,
                 'status' => $booking->status,
             ],
         ]);
     }
-
-
-
 
 
     //4.获取当前登录用户的借用申请记录
@@ -390,8 +503,8 @@ class FmyController extends Controller
                     'end_date' => optional($booking->end_date)->format('Y-m-d'),
                     'purpose' => $booking->purpose,
                     'status' => $booking->status,
-                    'rejected_reason'=> $booking->rejected_reason,
-                    'approved_at'=> $booking->approved_at,
+                    'rejected_reason' => $booking->rejected_reason,
+                    'approved_at' => $booking->approved_at,
                 ];
             });
 
@@ -408,8 +521,7 @@ class FmyController extends Controller
                     ],
                 ],
             ]);
-        }
-        catch (Exception $e) {
+        } catch (Exception $e) {
             //写入错误日志
             Log::error('获取借用记录失败: ' . $e->getMessage());
 
@@ -420,13 +532,6 @@ class FmyController extends Controller
             ], 500);
         }
     }
-
-
-
-
-
-
-
 
 
     //5.获取当前登录用户的单条借用申请详情
@@ -494,27 +599,42 @@ class FmyController extends Controller
     }
 
 
-
-
-
     //6.当前登录用户归还指定设备
     public function returnBooking(int $id)
     {
         $userId = auth()->id();
 
-        // 查询当前用户的已批准申请
-        $booking = Booking::where('id', $id)
-            ->where('user_id', $userId)
-            ->where('status', 'approved')  // 仅 approved 可归还
-            ->with('device')
-            ->first();
-        // 记录不存在或不是 approved 状态
+        // 先查询记录是否存在
+        $booking = Booking::where('id', $id)->with('device')->first();
+
+        // 记录不存在
         if (!$booking) {
             return response()->json([
                 'code' => 404,
-                'message' => '借用记录不存在、无权操作或不是已批准状态',
+                'message' => '借用记录不存在',
                 'data' => null
             ], 404);
+        }
+
+        // 无权操作（不是当前用户的记录）
+        if ($booking->user_id !== $userId) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权操作该借用记录',
+                'data' => null
+            ], 403);
+        }
+
+        // 状态不正确（不是 approved 状态）
+        if ($booking->status !== 'approved') {
+            return response()->json([
+                'code' => 400,
+                'message' => '该借用记录不是已批准状态，无法归还',
+                'data' => [
+                    'current_status' => $booking->status,
+                    'required_status' => 'approved'
+                ]
+            ], 400);
         }
         // 更新申请状态为已归还
         $booking->update([
@@ -536,28 +656,42 @@ class FmyController extends Controller
     }
 
 
-
-
-
-
-
     //7.删除已结束记录
     public function deleteFinished(int $id)
     {
         $userId = auth()->id();
 
-        // 查询当前用户的已结束申请
-        $booking = Booking::where('id', $id)
-            ->where('user_id', $userId)
-            ->whereIn('status', ['rejected', 'returned'])  // 仅 rejected/returned 可删除
-            ->first();
+        // 先查询记录是否存在
+        $booking = Booking::where('id', $id)->first();
 
-        // 记录不存在或不是已结束状态
+        // 记录不存在
         if (!$booking) {
             return response()->json([
                 'code' => 404,
-                'message' => '借用记录不存在、无权操作或不是已结束状态（仅已拒绝/已归还可删除）',
+                'message' => '借用记录不存在',
+                'data' => null
             ], 404);
+        }
+
+        // 无权操作（不是当前用户的记录）
+        if ($booking->user_id !== $userId) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权操作该借用记录',
+                'data' => null
+            ], 403);
+        }
+
+        // 状态不正确（不是 rejected 或 returned 状态）
+        if (!in_array($booking->status, ['rejected', 'returned'])) {
+            return response()->json([
+                'code' => 400,
+                'message' => '该借用记录不是已结束状态，无法删除',
+                'data' => [
+                    'current_status' => $booking->status,
+                    'allowed_status' => ['rejected', 'returned']
+                ]
+            ], 400);
         }
         // 删除记录
         $booking->delete();
@@ -567,11 +701,6 @@ class FmyController extends Controller
             'data' => null
         ]);
     }
-
-
-
-
-
 
 
     //8.获取借用记录（管理员）
@@ -672,11 +801,6 @@ class FmyController extends Controller
             ],
         ]);
     }
-
-
-
-
-
 
 
     //9.审核通过（管理员，支持批量）
@@ -782,11 +906,6 @@ class FmyController extends Controller
     }
 
 
-
-
-
-
-
     //10.审核拒绝（管理员，支持批量）
     public function reject(Request $request)
     {
@@ -860,9 +979,6 @@ class FmyController extends Controller
     }
 
 
-
-
-
     //记住用户，延长Token有效期（需要登录）返回：新的长期Token
     public function rememberMe(Request $request)
     {
@@ -886,14 +1002,23 @@ class FmyController extends Controller
             // 3. 更新Token缓存
             cache()->put('user_token_' . $user->id, $token, now()->addDays(30));
 
+            // 4. 标记用户选择了记住我
+            cache()->put('user_remember_' . $user->id, true, now()->addDays(30));
+
             return response()->json([
                 'code' => 200,
                 'message' => '记住用户成功，登录状态已延长，旧Token已失效',
                 'data' => [
+                    'user' => [
+                        'id' => $user->id,
+                        'account' => $user->account,
+                        'name' => $user->name,
+                    ],
                     'token' => $token,
                     'token_type' => 'Bearer',
                     'expires_in' => 60 * 24 * 30, // 30天（分钟）
                     'expires_at' => now()->addDays(30)->format('Y-m-d H:i:s'),
+                    'remember' => true,
                 ]
             ]);
         } catch (\Exception $e) {
@@ -905,4 +1030,56 @@ class FmyController extends Controller
         }
     }
 
+    //取消记住用户，恢复默认Token有效期（需要登录）
+    public function forgetMe(Request $request)
+    {
+        try {
+            $user = auth('api')->user();
+
+            if (!$user) {
+                return response()->json([
+                    'code' => 401,
+                    'message' => '请先登录后再操作',
+                    'data' => null
+                ], 401);
+            }
+
+            // 1. 将当前Token加入黑名单（使其失效）
+            auth('api')->logout();
+
+            // 2. 生成新的短期Token（默认2小时有效期）
+            $token = auth('api')->login($user);
+
+            // 3. 更新Token缓存（使用默认有效期）
+            $ttl = config('jwt.ttl', 120); // 默认120分钟
+            cache()->put('user_token_' . $user->id, $token, now()->addMinutes($ttl));
+
+            // 4. 删除记住我标记
+            cache()->forget('user_remember_' . $user->id);
+
+            return response()->json([
+                'code' => 200,
+                'message' => '已取消记住用户，恢复默认登录状态，旧Token已失效',
+                'data' => [
+                    'user' => [
+                        'id' => $user->id,
+                        'account' => $user->account,
+                        'name' => $user->name,
+                    ],
+                    'token' => $token,
+                    'token_type' => 'Bearer',
+                    'expires_in' => $ttl * 60, // 转换为秒
+                    'expires_at' => now()->addMinutes($ttl)->format('Y-m-d H:i:s'),
+                    'remember' => false,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 500,
+                'message' => '取消记住用户失败：' . $e->getMessage(),
+                'data' => null
+            ], 500);
+        }
+    }
 }
+

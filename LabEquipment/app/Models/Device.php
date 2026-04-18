@@ -19,6 +19,7 @@ class Device extends Model
         'total_qty',      // 总库存
         'available_qty',  // 可用库存
         'status',         // 状态：available, maintenance, disabled
+        'created_by',     // 创建人ID
     ];
 
     // 字段类型转换
@@ -26,8 +27,17 @@ class Device extends Model
         'total_qty' => 'integer',
         'available_qty' => 'integer',
         'category_id' => 'integer',
+        'created_by' => 'integer',
         'deleted_at' => 'datetime',
     ];
+
+    /**
+     * 获取创建者
+     */
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
      //关联分类表
     public function category(): BelongsTo
     {
@@ -40,6 +50,19 @@ class Device extends Model
     public function devices()
     {
         return $this->hasMany(Device::class); // 或 Equipment::class，根据你的模型名称
+    }
+
+    /**
+     * 获取可用数量
+     * 可用数量 = 总库存 - 已借出数量
+     */
+    public function getAvailableQuantity(): int
+    {
+        $borrowedCount = Booking::where('device_id', $this->id)
+            ->whereIn('status', ['pending', 'approved'])
+            ->count();
+
+        return max(0, $this->total_qty - $borrowedCount);
     }
 
 }

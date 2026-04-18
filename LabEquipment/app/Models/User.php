@@ -77,4 +77,22 @@ class User extends Model implements AuthenticatableContract, JWTSubject
     {
         return $this->role === 'admin';
     }
+
+    /**
+     * 检查用户是否为超级管理员（第一个创建的管理员）
+     */
+    public function isSuperAdmin(): bool
+    {
+        if ($this->role !== 'admin') {
+            return false;
+        }
+
+        // 获取第一个创建的管理员
+        $firstAdmin = User::where('role', 'admin')
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
+            ->first();
+
+        return $firstAdmin && $firstAdmin->id === $this->id;
+    }
 }

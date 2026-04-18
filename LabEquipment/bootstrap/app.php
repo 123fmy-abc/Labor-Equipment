@@ -41,7 +41,6 @@ return Application::configure(basePath: dirname(__DIR__))
 
 
         // 自定义未认证异常响应（AuthenticationException）
-        // 注意：使用 jwt.auth 中间件后，JWT 错误会在中间件中被捕获
         // 这里作为后备处理，处理其他认证异常情况
         $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
@@ -108,6 +107,22 @@ return Application::configure(basePath: dirname(__DIR__))
                     'message' => '登录已过期或Token无效，请重新登录',
                     'data' => ['error_type' => 'token_invalid_or_expired']
                 ], 401);
+            }
+        });
+
+        // 自定义验证异常响应（ValidationException）
+        $exceptions->render(function (\Illuminate\Validation\ValidationException $e, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                $errors = $e->validator->errors();
+                $firstError = $errors->first();
+                
+                return response()->json([
+                    'code' => 422,
+                    'message' => $firstError,
+                    'data' => [
+                        'errors' => $errors->toArray()
+                    ]
+                ], 422);
             }
         });
     })->create();

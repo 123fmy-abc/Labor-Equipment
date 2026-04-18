@@ -35,8 +35,10 @@ Route::middleware(['auth:api','sso'])->group(function () {
     Route::get('/auth/me', [ZztController::class, 'me']);
     //修改个人资料
     Route::put('/auth/profile', [ZztController::class, 'updateProfile']);
-    //记住用户
-    Route::post('/remember-me', [FmyController::class, 'rememberMe']);
+    //记住用户（延长Token有效期）
+    Route::post('/auth/remember-me', [FmyController::class, 'rememberMe']);
+    //取消记住用户（恢复默认Token有效期）
+    Route::post('/auth/forget-me', [FmyController::class, 'forgetMe']);
 });
 
 
@@ -47,8 +49,9 @@ Route::middleware(['auth:api', 'admin','sso'])->group(function () {
     Route::post('/admin/invite-codes', [ZztController::class, 'generateInviteCode']);
     //获取邀请码列表
     Route::get('/admin/invite-codes', [ZztController::class, 'listInviteCodes']);
-    //删除邀请码
-    Route::delete('/admin/invite-codes/{id}', [ZztController::class, 'deleteInviteCode']);
+    //删除邀请码（支持批量删除，Body传参）
+    // 示例: DELETE /admin/invite-codes Body: {"ids": [2, 5, 8]}
+    Route::delete('/admin/invite-codes', [ZztController::class, 'deleteInviteCode']);
 });
 
 
@@ -59,6 +62,8 @@ Route::group(['middleware' => ['auth:api', 'sso']], function () {
     Route::get('/devices', [ZztController::class, 'getDeviceList']);
 //获取可借设备列表
     Route::get('/devices/available', [ZztController::class, 'getAvailableDeviceList']);
+//设备使用统计
+    Route::get('/devices-stats', [CgjController::class, 'deviceStats'])->middleware('admin');
 //获取设备详情
     Route::get('/devices/{id}', [ZztController::class, 'getDeviceDetail']);
 //新增设备
@@ -74,8 +79,6 @@ Route::group(['middleware' => ['auth:api', 'sso']], function () {
     Route::put('/devices/{id}',[CgjController::class,'updateDevice'])->middleware('admin');
     //删除设备
     Route::delete('/devices/{id}', [CgjController::class, 'deleteDevice'])->middleware('admin');
-    //设备使用统计
-    Route::get('/devices/stats', [CgjController::class, 'deviceStats'])->middleware('admin');
 
     // 2. 分类模块 - 所有接口
     //获取全部分类
@@ -88,8 +91,8 @@ Route::group(['middleware' => ['auth:api', 'sso']], function () {
     Route::put('/categories/{id}', [CgjController::class, 'updateCategory'])->middleware('admin');
     //删除分类
     Route::delete('/categories/{id}', [CgjController::class, 'deleteCategory'])->middleware('admin');
-    //获取分类下的设备
-    Route::get('/categories/{id}/devices', [CgjController::class, 'getCategoryDevices']);
+    //获取分类下的设备（支持通过name参数按分类名查询）
+    Route::get('/category-devices', [CgjController::class, 'getCategoryDevices']);
 });
 
 
@@ -103,22 +106,22 @@ Route::middleware(['auth:api', 'sso'])->group(function () {
     Route::post('/createBooking', [FmyController::class,'createBooking']);
 
     // 取消当前用户指定待审核申请
-    Route::delete('/{id}/cancel', [FmyController::class, 'cancelMyPending']);
+    Route::delete('/cancel/{id}', [FmyController::class, 'cancelMyPending']);
 
     // 修改当前登录用户的指定待审核申请信息
-    Route::put('/{id}/change', [FmyController::class, 'changeBooking']);
+    Route::put('/change/{id}', [FmyController::class, 'changeBooking']);
 
     // 获取当前登录用户的所有借用申请记录
     Route::get('/myBooking', [FmyController::class, 'myBooking']);
 
     // 获取当前登录用户的单条借用申请详情
-    Route::get('/{id}/myBooking', [FmyController::class, 'singleBooking']);
+    Route::get('/myBooking/{id}', [FmyController::class, 'singleBooking']);
 
     // 当前登录用户归还指定设备
-    Route::post('/{id}/return', [FmyController::class, 'returnBooking']);
+    Route::post('/return/{id}', [FmyController::class, 'returnBooking']);
 
     // 删除已结束记录（仅 rejected/returned）
-    Route::delete('/{id}/delete', [FmyController::class, 'deleteFinished']);
+    Route::delete('/delete/{id}', [FmyController::class, 'deleteFinished']);
 });
 
 

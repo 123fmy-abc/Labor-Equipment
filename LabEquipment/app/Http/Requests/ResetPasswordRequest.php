@@ -22,7 +22,7 @@ class ResetPasswordRequest extends FormRequest
         return [
             'email' => 'required|email|exists:users,email',
             'code' => 'required|string|size:6',
-            'password' => 'required|string|min:6|confirmed',
+            'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^[a-zA-Z][a-zA-Z0-9]*$/'],
         ];
     }
 
@@ -38,7 +38,8 @@ class ResetPasswordRequest extends FormRequest
             'code.required' => '验证码不能为空',
             'code.size' => '验证码必须是6位',
             'password.required' => '密码不能为空',
-            'password.min' => '密码至少6位',
+            'password.min' => '密码至少8位',
+            'password.regex' => '密码必须以英文字母开头，且只能包含英文字母和数字',
             'password.confirmed' => '两次密码不一致',
         ];
     }

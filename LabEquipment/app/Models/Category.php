@@ -12,9 +12,7 @@ class Category extends Model
     protected $fillable = [
         'name',           // 分类名称
         'description',    // 分类描述
-        'parent_id',      // 父分类ID（如果有多级分类）
-        'sort',           // 排序
-        'status',         // 状态
+        'created_by'//创建人id
     ];
     public function devices()
     {
@@ -31,5 +29,9 @@ class Category extends Model
     public function children()
     {
         return $this->hasMany(Category::class, 'parent_id');
+    }
+    public function createdBy()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }

@@ -39,12 +39,14 @@ class ZztController extends Controller
 
         // 2. 验证参数（不需要验证码）
         $validated = $request->validate([
-            'account' => 'required|string|unique:users,account',
+            'account' => 'required|string|size:11|regex:/^\d{11}$/|unique:users,account',
             'name' => 'required|string|max:50',
             'email' => 'required|email|unique:users,email',
             'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^[a-zA-Z][a-zA-Z0-9]+$/'],
         ], [
             'account.required' => '账号不能为空',
+            'account.size' => '账号必须为11位数字',
+            'account.regex' => '账号必须为11位数字',
             'account.unique' => '该账号已被注册',
             'name.required' => '姓名不能为空',
             'email.required' => '邮箱不能为空',
@@ -145,17 +147,11 @@ class ZztController extends Controller
         // 5. 注册成功后删除验证码（防止重复使用）
         cache()->forget('email_code_' . $validated['email']);
 
-        // 6. 生成JWT Token（登录态）
-        /** @var \Tymon\JWTAuth\JWTGuard $auth */
-        $auth = Auth::guard('api');
-        $token = $auth->login($user);
-
-        // 7. 返回成功响应（不返回密码，只返回必要信息）
+        // 6. 返回成功响应（不返回Token，需要重新登录）
         return response()->json([
             'code' => 200,
-            'message' => '注册成功',
+            'message' => '注册成功，请使用账号密码登录',
             'data' => [
-                'token' => $token,
                 'user' => [
                     'id' => $user->id,
                     'account' => $user->account,
@@ -176,8 +172,15 @@ class ZztController extends Controller
     {
         // 1. 验证参数
         $validated = $request->validate([
-            'account' => 'required|string',
-            'password' => 'required|string'
+            'account' => 'required|string|size:11|regex:/^\d{11}$/',
+            'password' => ['required', 'string', 'min:8', 'regex:/^[a-zA-Z][a-zA-Z0-9]*$/']
+        ], [
+            'account.required' => '账号不能为空',
+            'account.size' => '账号必须为11位数字',
+            'account.regex' => '账号必须为11位数字',
+            'password.required' => '密码不能为空',
+            'password.min' => '密码至少8位',
+            'password.regex' => '密码必须以英文字母开头，且只能包含英文字母和数字'
         ]);
 
         // 2. 验证账号密码（JWT Auth的attempt方法）
@@ -347,7 +350,7 @@ class ZztController extends Controller
         /** @var User $user */
         $user = Auth::guard('api')->user();
 
-        // 1. 权限检查
+        // 1. 权限检查：只有管理员才能查看邀请码
         if ($user->role !== 'admin') {
             return response()->json([
                 'code' => 403,
@@ -356,9 +359,19 @@ class ZztController extends Controller
             ], 403);
         }
 
-        // 2. 获取邀请码列表
-        $inviteCodes = InviteCode::with('creator:id,account,name')
-            ->orderBy('created_at', 'desc')
+        // 2. 判断是否为超级管理员（系统中第一个创建的管理员）
+        $firstAdmin = User::where('role', 'admin')->orderBy('created_at', 'asc')->first();
+        $isSuperAdmin = $firstAdmin && $firstAdmin->id === $user->id;
+
+        // 3. 构建查询
+        $query = InviteCode::with('creator:id,account,name');
+
+        // 普通管理员只能查看自己的邀请码，超级管理员可以查看全部
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $user->id);
+        }
+
+        $inviteCodes = $query->orderBy('created_at', 'desc')
             ->get()
             ->map(function ($code) {
                 return [
@@ -378,7 +391,10 @@ class ZztController extends Controller
         return response()->json([
             'code' => 200,
             'message' => '获取邀请码列表成功',
-            'data' => $inviteCodes
+            'data' => [
+                'is_super_admin' => $isSuperAdmin,
+                'invite_codes' => $inviteCodes
+            ]
         ]);
     }
 
@@ -389,38 +405,62 @@ class ZztController extends Controller
      * 请求参数：id(邀请码ID)
      * 权限：创建者本人或超级管理员
      */
-    public function deleteInviteCode($id)
+    public function deleteInviteCode(Request $request)
     {
         /** @var User $user */
         $user = Auth::guard('api')->user();
 
-        // 1. 查找邀请码
-        $inviteCode = InviteCode::find($id);
+        // 1. 验证并获取 Body 参数 ids（数组格式）
+        $validated = $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'integer|exists:invite_codes,id'
+        ], [
+            'ids.required' => '邀请码ID不能为空',
+            'ids.array' => 'ids必须是数组格式',
+            'ids.*.integer' => '邀请码ID必须是整数',
+            'ids.*.exists' => '邀请码不存在'
+        ]);
 
-        if (!$inviteCode) {
+        $ids = $validated['ids'];
+
+        // 2. 判断是否为超级管理员（系统中第一个创建的管理员）
+        $firstAdmin = User::where('role', 'admin')->orderBy('created_at', 'asc')->first();
+        $isSuperAdmin = $firstAdmin && $firstAdmin->id === $user->id;
+
+        // 3. 查询要删除的邀请码
+        $query = InviteCode::whereIn('id', $ids);
+
+        // 非超级管理员只能删除自己创建的
+        if (!$isSuperAdmin) {
+            $query->where('created_by', $user->id);
+        }
+
+        $inviteCodes = $query->get();
+
+        if ($inviteCodes->isEmpty()) {
             return response()->json([
                 'code' => 404,
-                'message' => '邀请码不存在',
+                'message' => '未找到可删除的邀请码',
                 'data' => []
             ], 404);
         }
 
-        // 2. 权限检查：只能是创建者本人或超级管理员
-        if ($inviteCode->created_by !== $user->id && $user->role !== 'admin') {
-            return response()->json([
-                'code' => 403,
-                'message' => '无权限删除此邀请码，只能删除自己创建的邀请码',
-                'data' => []
-            ], 403);
-        }
+        // 4. 执行删除
+        $deletedCount = $inviteCodes->count();
+        $deletedIds = $inviteCodes->pluck('id')->toArray();
+        InviteCode::whereIn('id', $deletedIds)->delete();
 
-        // 3. 删除邀请码
-        $inviteCode->delete();
+        // 5. 检查是否有部分ID未删除（无权限或不存在的）
+        $notDeletedIds = array_diff($ids, $deletedIds);
 
         return response()->json([
             'code' => 200,
-            'message' => '邀请码删除成功',
-            'data' => []
+            'message' => $deletedCount > 1 ? "成功删除 {$deletedCount} 个邀请码" : '邀请码删除成功',
+            'data' => [
+                'deleted_count' => $deletedCount,
+                'deleted_ids' => $deletedIds,
+                'not_deleted_ids' => array_values($notDeletedIds) // 无权限或不存在的ID
+            ]
         ]);
     }
 
@@ -428,56 +468,146 @@ class ZztController extends Controller
     /**
      * 接口功能：修改个人信息/密码
      * 请求头：Authorization: Bearer {token}
-     * 请求参数：name(可选), email(可选), password(可选), password_confirmation(可选), old_password(改密码必填)
+     * 请求参数：
+     *   - account(可选): 账户，唯一，英文开头
+     *   - name(可选): 姓名，2-50字符
+     *   - email(可选): 邮箱，需验证唯一性，修改时需要提供 email_code
+     *   - email_code(修改邮箱时必填): 新邮箱的验证码
+     *   - password(可选): 新密码，至少8位，需包含字母和数字
+     *   - password_confirmation(可选): 确认新密码
+     *   - old_password(改密码时必填): 旧密码
      */
     public function updateProfile(Request $request)
     {
         /** @var User $user */
         $user = Auth::guard('api')->user();
 
-        // 1. 验证参数（改密码时必须验证旧密码）
+        // 过滤掉和原值相同的字段（不传这些字段就不会触发验证）
+        $input = $request->all();
+        if (isset($input['account']) && $input['account'] === $user->account) {
+            unset($input['account']);
+        }
+        if (isset($input['name']) && $input['name'] === $user->name) {
+            unset($input['name']);
+        }
+        if (isset($input['email']) && $input['email'] === $user->email) {
+            unset($input['email']);
+        }
+        $request->replace($input);
+
+        // 验证参数
         $validated = $request->validate([
-            'name' => 'nullable|string|max:50',
-            'email' => 'nullable|email|unique:users,email,' . $user->id, // 排除当前用户的邮箱
-            'password' => 'nullable|string|min:6|confirmed',
-            'old_password' => 'required_if:password,!=null|string' // 改密码时，旧密码必填
+            'account' => 'nullable|string|size:11|regex:/^\d{11}$/|unique:users,account,' . $user->id,
+            'name' => 'nullable|string|min:2|max:50',
+            'email' => 'nullable|email|unique:users,email,' . $user->id,
+            'email_code' => 'required_with:email|string|size:6',
+            'password' => [
+                'nullable',
+                'string',
+                'min:8',
+                'confirmed',
+                'regex:/^[a-zA-Z][a-zA-Z0-9]*$/'
+            ],
+            'old_password' => 'required_with:password|string'
+        ], [
+            'account.size' => '账户必须为11位数字',
+            'account.regex' => '账户必须为11位数字',
+            'account.unique' => '该账户已被使用',
+            'name.min' => '姓名至少2个字符',
+            'name.max' => '姓名最多50个字符',
+            'email.email' => '邮箱格式不正确',
+            'email.unique' => '该邮箱已被其他用户使用',
+            'email_code.required_with' => '修改邮箱时必须提供验证码',
+            'email_code.size' => '验证码必须是6位',
+            'password.min' => '新密码至少8位',
+            'password.confirmed' => '两次输入的新密码不一致',
+            'password.regex' => '新密码必须同时包含英文字母和数字',
+            'old_password.required_with' => '修改密码时必须提供旧密码'
         ]);
 
-        // 2. 如果用户要修改密码，先验证旧密码是否正确
         $updateData = [];
+        $updatedFields = [];
+
+        // 更新账户
+        if ($request->has('account') && $validated['account'] !== $user->account) {
+            $updateData['account'] = $validated['account'];
+            $updatedFields[] = 'account';
+        }
+
+        // 更新姓名
+        if ($request->has('name') && $validated['name'] !== $user->name) {
+            $updateData['name'] = $validated['name'];
+            $updatedFields[] = 'name';
+        }
+
+        // 更新邮箱
+        if ($request->has('email') && $validated['email'] !== $user->email) {
+            // 验证邮箱验证码
+            $cacheCode = cache()->get('email_code_' . $validated['email']);
+            if (!$cacheCode || $cacheCode != $request->input('email_code')) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '邮箱验证码错误或已过期',
+                    'data' => ['error_field' => 'email_code']
+                ], 400);
+            }
+
+            $updateData['email'] = $validated['email'];
+            $updateData['email_verified_at'] = now(); // 验证通过后设为当前时间
+            $updatedFields[] = 'email';
+
+            // 删除已使用的验证码
+            cache()->forget('email_code_' . $validated['email']);
+        }
+
+        // 更新密码
         if ($request->filled('password')) {
-            if (!Hash::check($validated['old_password'], $user->password)) {
+            if (!$request->filled('old_password')) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '修改密码时必须提供旧密码',
+                    'data' => ['error_field' => 'old_password']
+                ], 400);
+            }
+
+            if (!Hash::check($request->input('old_password'), $user->password)) {
                 return response()->json([
                     'code' => 400,
                     'message' => '旧密码错误',
-                    'data' => []
-                ]);
+                    'data' => ['error_field' => 'old_password']
+                ], 400);
             }
-            // 旧密码正确，加密新密码
+
+            if (Hash::check($validated['password'], $user->password)) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '新密码不能与旧密码相同',
+                    'data' => ['error_field' => 'password']
+                ], 400);
+            }
+
             $updateData['password'] = Hash::make($validated['password']);
+            $updatedFields[] = 'password';
         }
 
-        // 3. 更新姓名、邮箱（如果有传参）
-        if ($request->filled('name')) {
-            $updateData['name'] = $validated['name'];
-        }
-        if ($request->filled('email')) {
-            $updateData['email'] = $validated['email'];
+        // 保存修改
+        if (!empty($updateData)) {
+            $user->update($updateData);
         }
 
-        // 4. 保存修改
-        $user->update($updateData);
-
-        // 5. 返回更新后的用户信息
         return response()->json([
             'code' => 200,
-            'message' => '修改资料成功',
+            'message' => empty($updatedFields) ? '资料无变化' : '资料修改成功',
             'data' => [
-                'id' => $user->id,
-                'account' => $user->account,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role
+                'user' => [
+                    'id' => $user->id,
+                    'account' => $user->account,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                    'email_verified_at' => $user->email_verified_at?->format('Y-m-d H:i:s')
+                ],
+                'updated_fields' => $updatedFields
             ]
         ]);
     }
@@ -522,32 +652,28 @@ class ZztController extends Controller
 
     // ================================== 8. 获取设备列表（全部设备） ==================================
     /**
-     * 接口功能：获取所有设备列表，支持关键词、分类筛选，分页
-     * 请求参数：keyword(可选，关键词), category_id(可选，分类ID), page(可选，页码), limit(可选，每页数量)
+     * 接口功能：获取所有设备列表，支持关键词搜索，分页
+     * 请求参数：keyword(可选，关键词), page(可选，页码), limit(可选，每页数量)
      */
     public function getDeviceList(Request $request)
     {
         // 1. 获取请求参数，设置默认值
         $keyword = $request->input('keyword', '');
-        $categoryId = $request->input('category_id', '');
         $page = $request->input('page', 1);
         $limit = $request->input('limit', 10);
 
-        // 2. 构建查询（关联分类表，方便前端显示分类名称）
-        $query = Device::with('category');
+        // 2. 构建查询
+        $query = Device::query();
 
         // 3. 关键词筛选（设备名称/描述模糊匹配）
         if ($keyword) {
-            $query->where('name', 'like', "%{$keyword}%")
-                ->orWhere('description', 'like', "%{$keyword}%");
+            $query->where(function ($q) use ($keyword) {
+                $q->where('name', 'like', "%{$keyword}%")
+                  ->orWhere('description', 'like', "%{$keyword}%");
+            });
         }
 
-        // 4. 分类筛选
-        if ($categoryId) {
-            $query->where('category_id', $categoryId);
-        }
-
-        // 5. 分页查询
+        // 4. 分页查询
         $devices = $query->paginate($limit, ['*'], 'page', $page);
 
 
@@ -578,8 +704,7 @@ class ZztController extends Controller
         $limit = $request->input('limit', 10);
 
         // 2. 构建查询（只查状态为available，且可借数量>0的设备）
-        $query = Device::with('category')
-            ->where('status', 'available')
+        $query = Device::where('status', 'available')
             ->having('available_qty', '>', 0);
 
         // 3. 关键词筛选
@@ -649,15 +774,37 @@ class ZztController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:100',
             'category_id' => 'required|exists:categories,id',
-            'description' => 'nullable|string',
+            'description' => 'required|string',
             'total_qty' => 'required|integer|min:0',
             'status' => 'required|in:available,maintenance,disabled'
+        ], [
+            'name.required' => '设备名称不能为空',
+            'name.max' => '设备名称最多100个字符',
+            'category_id.required' => '分类ID不能为空',
+            'category_id.exists' => '所选分类不存在',
+            'description.required'=>'设备描述不能为空',
+            'total_qty.required' => '总库存不能为空',
+            'total_qty.integer' => '总库存必须是整数',
+            'total_qty.min' => '总库存不能小于0',
+            'status.required' => '设备状态不能为空',
+            'status.in' => '设备状态必须是 available、maintenance 或 disabled',
         ]);
 
-        // 2. 创建设备
+        // 2. 获取当前登录用户并记录创建者
+        $user = auth()->user();
+        $validated['created_by'] = $user->id;
+
+        // 3. 根据状态设置可用库存
+        // 只有状态为 available 时，可用库存才等于总库存
+        // 其他状态（maintenance, disabled）可用库存为 0
+        $validated['available_qty'] = $validated['status'] === 'available' 
+            ? $validated['total_qty'] 
+            : 0;
+
+        // 4. 创建设备
         $device = Device::create($validated);
 
-        // 3. 返回新增的设备信息
+        // 4. 返回新增的设备信息
         return response()->json([
             'code' => 200,
             'message' => '新增设备成功',
