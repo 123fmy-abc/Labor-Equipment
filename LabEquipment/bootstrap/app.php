@@ -38,7 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 429);
             }
         });
-        
+
 
         // 自定义未认证异常响应（AuthenticationException）
         // 注意：使用 jwt.auth 中间件后，JWT 错误会在中间件中被捕获
