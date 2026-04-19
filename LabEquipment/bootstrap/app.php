@@ -1,14 +1,10 @@
 <?php
 
-use Illuminate\Auth\AuthenticationException;
+use App\Http\Middleware\AdminMiddleware;
+use App\Http\Middleware\SingleSignOnMiddleware;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use App\Http\Middleware\AdminMiddleware;
-use Tymon\JWTAuth\Exceptions\TokenExpiredException;
-use Tymon\JWTAuth\Exceptions\TokenInvalidException;
-use Tymon\JWTAuth\Exceptions\JWTException;
-use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -18,9 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // 注册中间件别名
         $middleware->alias([
             'admin' => AdminMiddleware::class,
+            'sso' => SingleSignOnMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -29,95 +25,104 @@ return Application::configure(basePath: dirname(__DIR__))
             return $request->is('api/*') || $request->expectsJson();
         });
 
-        // 自定义未认证异常响应（JWT 验证失败也会进入这里）
-        $exceptions->render(function (AuthenticationException $e, $request) {
+        // 自定义限流异常响应
+        $exceptions->render(function (\Illuminate\Http\Exceptions\ThrottleRequestsException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
-                // 检查是否是 JWT 相关的错误
-                $previous = $e->getPrevious();
-                
-                if ($previous instanceof TokenExpiredException) {
+                $retryAfter = $e->getHeaders()['Retry-After'] ?? 60;
+                return response()->json([
+                    'code' => 429,
+                    'message' => '请求过于频繁，请稍后再试',
+                    'data' => [
+                        'retry_after' => $retryAfter,
+                    ]
+                ], 429);
+            }
+        });
+
+
+        // 自定义未认证异常响应（AuthenticationException）
+        // 这里作为后备处理，处理其他认证异常情况
+        $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                // 检查 Authorization 头
+                $authHeader = $request->header('Authorization');
+
+                // 没有提供 Authorization 头
+                if (!$authHeader) {
                     return response()->json([
                         'code' => 401,
-                        'message' => '登录已过期，请重新登录',
-                        'data' => null
+                        'message' => '请先登录后再操作',
+                        'data' => ['error_type' => 'token_not_provided']
                     ], 401);
                 }
-                
-                if ($previous instanceof TokenInvalidException) {
+
+                // 提供了 Authorization 头但格式不正确
+                if (!str_starts_with($authHeader, 'Bearer ')) {
                     return response()->json([
                         'code' => 401,
-                        'message' => '登录凭证无效，请重新登录',
-                        'data' => null
+                        'message' => 'Token格式错误，请以 Bearer 开头',
+                        'data' => ['error_type' => 'token_format_invalid']
                     ], 401);
                 }
-                
-                if ($previous instanceof JWTException) {
+
+                // 提取 Token
+                $token = $request->bearerToken();
+
+                // Token 为空
+                if (empty($token)) {
                     return response()->json([
                         'code' => 401,
-                        'message' => '登录凭证错误，请重新登录',
-                        'data' => null
+                        'message' => 'Token为空，请重新登录',
+                        'data' => ['error_type' => 'token_empty']
                     ], 401);
                 }
-                
-                // 默认：未登录
+
+                // 检查 Token 格式（JWT 应该是三段式：header.payload.signature）
+                $parts = explode('.', $token);
+                if (count($parts) !== 3) {
+                    return response()->json([
+                        'code' => 401,
+                        'message' => 'Token格式错误，JWT必须是三段式结构',
+                        'data' => ['error_type' => 'token_structure_invalid']
+                    ], 401);
+                }
+
+                // 尝试解码 payload 来检查是否过期
+                try {
+                    $payload = json_decode(base64_decode(str_replace(['-', '_'], ['+', '/'], $parts[1])), true);
+                    if ($payload && isset($payload['exp']) && $payload['exp'] < time()) {
+                        return response()->json([
+                            'code' => 401,
+                            'message' => '登录已过期，请重新登录',
+                            'data' => ['error_type' => 'token_expired']
+                        ], 401);
+                    }
+                } catch (\Exception $decodeError) {
+                    // 解码失败，继续返回通用错误
+                }
+
+                // 默认：Token 无效或已过期
                 return response()->json([
                     'code' => 401,
-                    'message' => '请先登录后再操作',
-                    'data' => null
+                    'message' => '登录已过期或Token无效，请重新登录',
+                    'data' => ['error_type' => 'token_invalid_or_expired']
                 ], 401);
             }
         });
 
-        // 自定义 JWT Token 过期异常
-        $exceptions->render(function (TokenExpiredException $e, $request) {
+        // 自定义验证异常响应（ValidationException）
+        $exceptions->render(function (\Illuminate\Validation\ValidationException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '登录已过期，请重新登录',
-                    'data' => null
-                ], 401);
-            }
-        });
-
-        // 自定义 JWT Token 无效异常
-        $exceptions->render(function (TokenInvalidException $e, $request) {
-            if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '登录凭证无效，请重新登录',
-                    'data' => null
-                ], 401);
-            }
-        });
-
-        // 自定义 JWT 其他异常（Token为空等）
-        $exceptions->render(function (JWTException $e, $request) {
-            if ($request->is('api/*') || $request->expectsJson()) {
-                $message = $e->getMessage();
-                
-                // 根据错误消息判断具体原因
-                if (str_contains($message, 'expired')) {
-                    return response()->json([
-                        'code' => 401,
-                        'message' => '登录已过期，请重新登录',
-                        'data' => null
-                    ], 401);
-                }
-                
-                if (str_contains($message, 'invalid') || str_contains($message, 'could not be parsed')) {
-                    return response()->json([
-                        'code' => 401,
-                        'message' => '登录凭证无效，请重新登录',
-                        'data' => null
-                    ], 401);
-                }
+                $errors = $e->validator->errors();
+                $firstError = $errors->first();
                 
                 return response()->json([
-                    'code' => 401,
-                    'message' => '登录凭证错误，请重新登录',
-                    'data' => null
-                ], 401);
+                    'code' => 422,
+                    'message' => $firstError,
+                    'data' => [
+                        'errors' => $errors->toArray()
+                    ]
+                ], 422);
             }
         });
-    })
-    ->create();
+    })->create();

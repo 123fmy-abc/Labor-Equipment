@@ -20,12 +20,38 @@ class CreateBookingRequest extends FormRequest
             'device_id' => [
                 'required',
                 'integer',
-                Rule::exists('devices', 'id')->where('status', 'available'),
+                function ($attribute, $value, $fail) {
+                    $device = \App\Models\Device::find($value);
+
+                    if (!$device) {
+                        $fail('所选设备不存在');
+                        return;
+                    }
+
+                    if ($device->status === 'maintenance') {
+                        $fail('设备正在维护中，暂时不可借用');
+                        return;
+                    }
+
+                    if ($device->status === 'disabled') {
+                        $fail('设备已下架，不可借用');
+                        return;
+                    }
+
+                    if ($device->status !== 'available') {
+                        $fail('设备当前不可借用');
+                    }
+                },
             ],
             'start_date' => [
                 'required',
                 'date_format:Y-m-d',
-                'after_or_equal:today',
+                function ($attribute, $value, $fail) {
+                    $today = now()->format('Y-m-d');
+                    if ($value < $today) {
+                        $fail('起始日期不能早于今天');
+                    }
+                },
             ],
             'end_date' => [
                 'required',

@@ -10,9 +10,21 @@ class AdminMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
+        $guard = Auth::guard('api');
+        
+        // 先检查是否已认证，避免触发异常
+        if (!$guard->check()) {
+            return response()->json([
+                'code' => 401,
+                'message' => '请先登录后再操作',
+                'data' => ['error_type' => 'unauthenticated']
+            ], 401);
+        }
+        
+        // 获取当前认证用户
+        $user = $guard->user();
 
-        //再判断用户是否是管理员
-        $user = Auth::user();
+        // 判断用户是否是管理员
         if (!$user->isAdmin()) {
             return response()->json([
                 'code' => 403,
@@ -21,7 +33,7 @@ class AdminMiddleware
             ], 403);
         }
 
-        // 3. 权限验证通过，继续执行接口
+        // 权限验证通过，继续执行接口
         return $next($request);
     }
 }

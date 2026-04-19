@@ -29,9 +29,10 @@ class UpdateBookingRequest extends FormRequest
                 'sometimes',
                 'date_format:Y-m-d',
             ],
-            'status' => [
+            'category_id' => [
                 'sometimes',
-                'in:pending,approved,rejected,returned',
+                'integer',
+                Rule::exists('categories', 'id'),
             ],
             'purpose' => [
                 'sometimes',
@@ -50,7 +51,8 @@ class UpdateBookingRequest extends FormRequest
             'start_date.date_format' => '起始时间格式不正确，应为 YYYY-MM-DD',
             'start_date.after_or_equal' => '起始时间不能早于今天',
             'end_date.date_format' => '结束时间格式不正确，应为 YYYY-MM-DD',
-            'status.in' => '状态值不正确',
+            'category_id.integer' => '分类ID必须是整数',
+            'category_id.exists' => '所选分类不存在',
             'purpose.string' => '借用用途必须是字符串',
             'purpose.min' => '借用用途至少2个字符',
             'purpose.max' => '借用用途不能超过500个字符',

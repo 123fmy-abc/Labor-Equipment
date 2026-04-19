@@ -17,7 +17,7 @@ use Tymon\JWTAuth\Facades\JWTAuth;
 class CgjController extends Controller
 {
 
-    // ==================== 2. 设备模块 - 最后4个接口 ====================
+    // ==================== 2. 设备模块  ====================
 
     /**
      * 修改设备信息
@@ -33,12 +33,29 @@ class CgjController extends Controller
                 'message'=>'设备不存在'
             ],404);
         }
+
+        // 权限检查：超级管理员可以修改所有，其他管理员只能修改自己创建的
+        $currentUser = auth()->user();
+        if (!$currentUser->isSuperAdmin() && $device->created_by !== $currentUser->id) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权修改此设备，只能修改自己创建的设备'
+            ], 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
             'category_id' => 'sometimes|exists:categories,id',
             'description' => 'nullable|string',
             'total_qty' => 'sometimes|integer|min:0',
             'status' => 'sometimes|in:available,maintenance,disabled'
+        ], [
+            'name.string' => '设备名称必须是字符串',
+            'name.max' => '设备名称最多255个字符',
+            'category_id.exists' => '所选分类不存在',
+            'total_qty.integer' => '总库存必须是整数',
+            'total_qty.min' => '总库存不能小于0',
+            'status.in' => '设备状态必须是 available、maintenance 或 disabled',
         ]);
 
         if ($validator->fails()) {
@@ -47,6 +64,25 @@ class CgjController extends Controller
                 'message' => '验证失败',
                 'errors' => $validator->errors()
             ], 422);
+        }
+
+        // 检查是否有任何字段被修改
+        $fieldsToUpdate = ['name', 'category_id', 'description', 'total_qty', 'status'];
+        $hasChanges = false;
+        
+        foreach ($fieldsToUpdate as $field) {
+            if ($request->has($field) && $request->$field != $device->$field) {
+                $hasChanges = true;
+                break;
+            }
+        }
+        
+        if (!$hasChanges) {
+            return response()->json([
+                'code' => 200,
+                'message' => '无任何修改',
+                'data' => $device
+            ]);
         }
 
         // 如果要修改总库存，需要校验新库存不能小于已借出数量
@@ -65,10 +101,17 @@ class CgjController extends Controller
 
         $device->update($request->only(['name', 'category_id', 'description', 'total_qty', 'status']));
 
-        // 重新计算可借数量
-        $device->available_qty = $device->total_qty - Booking::where('device_id', $device->id)
-                ->whereIn('status', ['pending', 'approved'])
-                ->count();
+        // 根据状态重新计算可用库存
+        if ($device->status === 'available') {
+            // 可用状态：总库存 - 已借出
+            $device->available_qty = $device->total_qty - Booking::where('device_id', $device->id)
+                    ->whereIn('status', ['pending', 'approved'])
+                    ->count();
+        } else {
+            // 维护中或禁用状态：可用库存为0
+            $device->available_qty = 0;
+        }
+        $device->save();
 
         return response()->json([
             'code' => 200,
@@ -94,6 +137,15 @@ class CgjController extends Controller
             ], 404);
         }
 
+        // 权限检查：超级管理员可以删除所有，其他管理员只能删除自己创建的
+        $currentUser = auth()->user();
+        if (!$currentUser->isSuperAdmin() && $device->created_by !== $currentUser->id) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权删除此设备，只能删除自己创建的设备'
+            ], 403);
+        }
+
         // 检查是否有未完成的借用记录
         $hasActiveBookings = Booking::where('device_id', $id)
             ->whereIn('status', ['pending', 'approved'])
@@ -106,20 +158,38 @@ class CgjController extends Controller
             ], 400);
         }
 
+        // 记录删除的设备信息
+        $deletedDeviceInfo = [
+            'name' => $device->name,
+            'total_qty' => $device->total_qty,
+            'available_qty' => $device->available_qty
+        ];
+
         $device->delete();
 
         return response()->json([
             'code' => 200,
-            'message' => '删除成功'
+            'message' => '删除成功',
+            'data' => $deletedDeviceInfo
         ]);
     }
 
     /**
      * 设备使用统计
      * GET /devices/stats
+     * 权限：仅管理员可查看
      */
     public function deviceStats()
     {
+        // 权限检查：只有管理员才能查看统计
+        $currentUser = auth()->user();
+        if (!$currentUser || !$currentUser->isAdmin()) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权查看，仅管理员可访问'
+            ], 403);
+        }
+
         $totalDevices = Device::count();
         $availableDevices = Device::where('status', 'available')->count();
         $maintenanceDevices = Device::where('status', 'maintenance')->count();
@@ -172,8 +242,8 @@ class CgjController extends Controller
     public function getCategories()
     {
         try {
-            // 临时方案：先不统计设备数量
-            $categories = Category::all();
+            // 只获取分类名称列表
+            $categories = Category::pluck('name');
 
             return response()->json([
                 'code' => 200,
@@ -194,7 +264,7 @@ class CgjController extends Controller
      */
     public function getCategory($id)
     {
-        $category = Category::with('devices')->find($id);
+        $category = Category::with(['createdBy'])->find($id);
 
         if (!$category) {
             return response()->json([
@@ -203,10 +273,20 @@ class CgjController extends Controller
             ], 404);
         }
 
+        // 构建详细响应
+        $responseData = [
+            'id' => $category->id,
+            'name' => $category->name,
+            'description' => $category->description,
+            'created_by' => $category->createdBy,
+            'created_at' => $category->created_at,
+            'updated_at' => $category->updated_at,
+        ];
+
         return response()->json([
             'code' => 200,
             'message' => '获取成功',
-            'data' => $category
+            'data' => $responseData
         ]);
     }
 
@@ -218,16 +298,30 @@ class CgjController extends Controller
     {
         try {
             // 验证输入
-            $request->validate([
-                'name' => 'required|string|max:255',
-                'description' => 'nullable|string', // 允许为空
+            $validated = $request->validate([
+                'name' => 'required|string|max:255|unique:categories,name',
+                'description' => 'required|string', // 描述必填
+            ], [
+                'name.required' => '分类名称不能为空',
+                'name.max' => '分类名称最多255个字符',
+                'name.unique' => '该分类名称已存在，请使用其他名称',
+                'description.required' => '分类描述不能为空',
             ]);
 
-            // 创建分类，如果没有提供 description，使用空字符串
+            // 获取当前登录用户
+            $user = auth()->user();
+            if (!$user) {
+                return response()->json([
+                    'code' => 401,
+                    'message' => '请先登录后再操作'
+                ], 401);
+            }
+
+            // 创建分类，记录创建者
             $category = Category::create([
-                'name' => $request->name,
-                'description' => $request->description ?? '', // 如果没传，默认为空字符串
-                // 如果有其他字段，也在这里添加
+                'name' => $validated['name'],
+                'description' => $validated['description'],
+                'created_by' => $user->id,
             ]);
 
             return response()->json([
@@ -256,6 +350,15 @@ class CgjController extends Controller
                 'code' => 404,
                 'message' => '分类不存在'
             ], 404);
+        }
+
+        // 权限检查：超级管理员可以修改所有，其他管理员只能修改自己创建的
+        $currentUser = auth()->user();
+        if (!$currentUser->isSuperAdmin() && $category->created_by !== $currentUser->id) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权修改此分类，只能修改自己创建的分类'
+            ], 403);
         }
 
         $validator = Validator::make($request->all(), [
@@ -302,6 +405,15 @@ class CgjController extends Controller
             ], 404);
         }
 
+        // 权限检查：超级管理员可以删除所有，其他管理员只能删除自己创建的
+        $currentUser = auth()->user();
+        if (!$currentUser->isSuperAdmin() && $category->created_by !== $currentUser->id) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权删除此分类，只能删除自己创建的分类'
+            ], 403);
+        }
+
         // 检查是否有设备关联
         $hasDevices = Device::where('category_id', $id)->exists();
 
@@ -322,11 +434,21 @@ class CgjController extends Controller
 
     /**
      * 获取指定分类下的设备
-     * GET /categories/{id}/devices
+     * GET /category-devices?name=分类名
+     * 通过name参数传分类名查询
      */
-    public function getCategoryDevices(Request $request, $id)
+    public function getCategoryDevices(Request $request)
     {
-        $category = Category::find($id);
+        // 必须传name参数
+        if (!$request->has('name') || !$request->name) {
+            return response()->json([
+                'code' => 422,
+                'message' => '请传入分类名称（name参数）'
+            ], 422);
+        }
+
+        // 按分类名查询
+        $category = Category::where('name', $request->name)->first();
 
         if (!$category) {
             return response()->json([
@@ -335,7 +457,7 @@ class CgjController extends Controller
             ], 404);
         }
 
-        $query = Device::where('category_id', $id);
+        $query = Device::where('category_id', $category->id);
 
         if ($request->has('keyword') && $request->keyword) {
             $query->where('name', 'like', '%' . $request->keyword . '%');
@@ -343,16 +465,31 @@ class CgjController extends Controller
 
         $devices = $query->paginate($request->get('limit', 10));
 
-        // 计算可借数量
-        $devices->getCollection()->transform(function ($device) {
-            $device->available_qty = $device->getAvailableQuantity();
-            return $device;
+        // 计算可借数量并简化返回格式
+        $simplifiedDevices = $devices->getCollection()->map(function ($device) {
+            return [
+                'id' => $device->id,
+                'name' => $device->name,
+                'description' => $device->description,
+                'total_qty' => $device->total_qty,
+                'available_qty' => $device->getAvailableQuantity(),
+                'status' => $device->status,
+                'category_id' => $device->category_id,
+                'created_at' => $device->created_at,
+                'updated_at' => $device->updated_at,
+            ];
         });
 
         return response()->json([
             'code' => 200,
             'message' => '获取成功',
-            'data' => $devices
+            'data' => [
+                'list' => $simplifiedDevices,
+                'total' => $devices->total(),
+                'current_page' => $devices->currentPage(),
+                'last_page' => $devices->lastPage(),
+                'per_page' => $devices->perPage(),
+            ]
         ]);
     }
 
