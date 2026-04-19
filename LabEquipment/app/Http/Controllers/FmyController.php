@@ -803,7 +803,7 @@ class FmyController extends Controller
     }
 
 
-    //9.审核通过（管理员，支持批量）
+    //审核通过（管理员，支持批量）
     public function approve(Request $request)
     {
         // 验证参数
@@ -977,109 +977,5 @@ class FmyController extends Controller
             ]
         ]);
     }
-
-
-    //记住用户，延长Token有效期（需要登录）返回：新的长期Token
-    public function rememberMe(Request $request)
-    {
-        try {
-            $user = auth('api')->user();
-
-            if (!$user) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '请先登录后再操作',
-                    'data' => null
-                ], 401);
-            }
-
-            // 1. 将当前Token加入黑名单（使其失效）
-            auth('api')->logout();
-
-            // 2. 生成新的长期Token（30天有效期）
-            $token = auth('api')->setTTL(60 * 24 * 30)->login($user);
-
-            // 3. 更新Token缓存
-            cache()->put('user_token_' . $user->id, $token, now()->addDays(30));
-
-            // 4. 标记用户选择了记住我
-            cache()->put('user_remember_' . $user->id, true, now()->addDays(30));
-
-            return response()->json([
-                'code' => 200,
-                'message' => '记住用户成功，登录状态已延长，旧Token已失效',
-                'data' => [
-                    'user' => [
-                        'id' => $user->id,
-                        'account' => $user->account,
-                        'name' => $user->name,
-                    ],
-                    'token' => $token,
-                    'token_type' => 'Bearer',
-                    'expires_in' => 60 * 24 * 30, // 30天（分钟）
-                    'expires_at' => now()->addDays(30)->format('Y-m-d H:i:s'),
-                    'remember' => true,
-                ]
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'code' => 500,
-                'message' => '记住用户失败：' . $e->getMessage(),
-                'data' => null
-            ], 500);
-        }
-    }
-
-    //取消记住用户，恢复默认Token有效期（需要登录）
-    public function forgetMe(Request $request)
-    {
-        try {
-            $user = auth('api')->user();
-
-            if (!$user) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '请先登录后再操作',
-                    'data' => null
-                ], 401);
-            }
-
-            // 1. 将当前Token加入黑名单（使其失效）
-            auth('api')->logout();
-
-            // 2. 生成新的短期Token（默认2小时有效期）
-            $token = auth('api')->login($user);
-
-            // 3. 更新Token缓存（使用默认有效期）
-            $ttl = config('jwt.ttl', 120); // 默认120分钟
-            cache()->put('user_token_' . $user->id, $token, now()->addMinutes($ttl));
-
-            // 4. 删除记住我标记
-            cache()->forget('user_remember_' . $user->id);
-
-            return response()->json([
-                'code' => 200,
-                'message' => '已取消记住用户，恢复默认登录状态，旧Token已失效',
-                'data' => [
-                    'user' => [
-                        'id' => $user->id,
-                        'account' => $user->account,
-                        'name' => $user->name,
-                    ],
-                    'token' => $token,
-                    'token_type' => 'Bearer',
-                    'expires_in' => $ttl * 60, // 转换为秒
-                    'expires_at' => now()->addMinutes($ttl)->format('Y-m-d H:i:s'),
-                    'remember' => false,
-                ]
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'code' => 500,
-                'message' => '取消记住用户失败：' . $e->getMessage(),
-                'data' => null
-            ], 500);
-        }
-    }
-}
+}],
 

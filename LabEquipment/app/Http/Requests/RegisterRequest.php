@@ -25,7 +25,6 @@ class RegisterRequest extends FormRequest
             'email' => 'required|email|unique:users',
             'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^[a-zA-Z][a-zA-Z0-9]*$/'],
             'code' => 'required|string|size:6', // 邮箱验证码，6位
-            'invite_code' => 'nullable|string',
         ];
     }
 

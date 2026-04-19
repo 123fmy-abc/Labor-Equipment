@@ -12,9 +12,6 @@ use App\Http\Controllers\CgjController;
 //注意：加middleware('sso')即需要单点认证
 
 // -------------------------- 认证相关接口 --------------------------
-//首次设置管理员（仅当没有管理员时可用，限制每小时只能调用3次）
-Route::post('/auth/setup-admin', [ZztController::class, 'setupFirstAdmin'])
-    ->middleware('throttle:3,60');
 //注册
 Route::post('/auth/register', [ZztController::class, 'register']);
 //发送邮箱验证码
@@ -35,24 +32,8 @@ Route::middleware(['auth:api','sso'])->group(function () {
     Route::get('/auth/me', [ZztController::class, 'me']);
     //修改个人资料
     Route::put('/auth/profile', [ZztController::class, 'updateProfile']);
-    //记住用户（延长Token有效期）
-    Route::post('/auth/remember-me', [FmyController::class, 'rememberMe']);
-    //取消记住用户（恢复默认Token有效期）
-    Route::post('/auth/forget-me', [FmyController::class, 'forgetMe']);
 });
 
-
-
-// -------------------------- 邀请码管理接口（仅管理员） --------------------------
-Route::middleware(['auth:api', 'admin','sso'])->group(function () {
-    //生成邀请码
-    Route::post('/admin/invite-codes', [ZztController::class, 'generateInviteCode']);
-    //获取邀请码列表
-    Route::get('/admin/invite-codes', [ZztController::class, 'listInviteCodes']);
-    //删除邀请码（支持批量删除，Body传参）
-    // 示例: DELETE /admin/invite-codes Body: {"ids": [2, 5, 8]}
-    Route::delete('/admin/invite-codes', [ZztController::class, 'deleteInviteCode']);
-});
 
 
 // -------------------------- 设备相关接口 --------------------------
