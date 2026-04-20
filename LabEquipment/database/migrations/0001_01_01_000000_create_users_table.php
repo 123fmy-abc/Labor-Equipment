@@ -16,7 +16,9 @@ return new class extends Migration
             $table->string('account')->unique()->comment('学号/工号作为唯一标识'); // 新增：用于登录
             $table->string('name')->comment('用户名');
             $table->string('email')->unique()->comment('用户邮箱');
-
+            $table->string('avatar')->nullable()->comment('头像URL');
+            $table->string('college')->nullable()->comment('学院');
+            $table->string('major')->nullable()->comment('专业');
             $table->timestamp('email_verified_at')->comment('判断一个用户的邮箱是否已经通过验证');
             $table->string('password')->comment('密码');
             $table->enum('role', ['user', 'admin'])->default('user')->comment('角色：学生/管理员');
