@@ -45,8 +45,7 @@ Route::group(['middleware' => ['auth:api', 'sso']], function () {
     Route::get('/devices', [ZztController::class, 'getDeviceList']);
     // 获取可借设备列表
     Route::get('/devices/available', [ZztController::class, 'getAvailableDeviceList']);
-    // 设备使用统计
-    Route::get('/devices-stats', [CgjController::class, 'deviceStats'])->middleware('admin');
+
     // 获取设备详情
     Route::get('/devices/{id}', [ZztController::class, 'getDeviceDetail']);
     // 新增设备
@@ -118,6 +117,9 @@ Route::middleware(['auth:api', 'admin','sso'])->group(function () {
 
     // 审批拒绝（仅 pending，需填写原因）
     Route::post('/reject', [FmyController::class, 'reject']);
+
+    // 获取所有设备被借走的总数统计
+    Route::get('/borrowed-stats', [FmyController::class, 'borrowedStats']);
 });
 
 

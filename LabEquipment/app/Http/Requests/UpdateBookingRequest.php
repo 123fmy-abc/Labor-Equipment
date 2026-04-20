@@ -29,6 +29,11 @@ class UpdateBookingRequest extends FormRequest
                 'sometimes',
                 'date_format:Y-m-d',
             ],
+            'quantity' => [
+                'sometimes',
+                'integer',
+                'min:1',
+            ],
             'category_id' => [
                 'sometimes',
                 'integer',
@@ -51,6 +56,8 @@ class UpdateBookingRequest extends FormRequest
             'start_date.date_format' => '起始时间格式不正确，应为 YYYY-MM-DD',
             'start_date.after_or_equal' => '起始时间不能早于今天',
             'end_date.date_format' => '结束时间格式不正确，应为 YYYY-MM-DD',
+            'quantity.integer' => '借用数量必须是整数',
+            'quantity.min' => '借用数量至少为1',
             'category_id.integer' => '分类ID必须是整数',
             'category_id.exists' => '所选分类不存在',
             'purpose.string' => '借用用途必须是字符串',
