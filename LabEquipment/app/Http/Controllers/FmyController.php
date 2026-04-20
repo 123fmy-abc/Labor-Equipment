@@ -100,6 +100,7 @@ class FmyController extends Controller
 
         $validated = $request->validated();
         $deviceId = $validated['device_id'];
+        $quantity = $validated['quantity'];
         $startDate = $validated['start_date'];
         $endDate = $validated['end_date'];
         $purpose = $validated['purpose'];
@@ -166,6 +167,7 @@ class FmyController extends Controller
         $booking = Booking::create([
             'user_id' => $userId,
             'device_id' => $deviceId,
+            'quantity' => $quantity,
             'start_date' => $startDate,
             'end_date' => $endDate,
             'purpose' => $purpose,
@@ -191,6 +193,7 @@ class FmyController extends Controller
                         'name' => $booking->device->category->name,
                     ] : null,
                 ] : null,
+                'quantity' => $booking->quantity,
                 'start_date' => $booking->start_date->format('Y-m-d'),
                 'end_date' => $booking->end_date->format('Y-m-d'),
                 'purpose' => $booking->purpose,
@@ -318,7 +321,7 @@ class FmyController extends Controller
         // 检查是否有任何字段被修改
         $hasChanges = false;
         $fieldsToCheck = ['device_id', 'start_date', 'end_date', 'purpose', 'category_id'];
-        
+
         foreach ($fieldsToCheck as $field) {
             if (isset($validated[$field])) {
                 // 日期字段需要格式化后比较
@@ -329,14 +332,14 @@ class FmyController extends Controller
                     $oldValue = $booking->$field;
                     $newValue = $validated[$field];
                 }
-                
+
                 if ($oldValue != $newValue) {
                     $hasChanges = true;
                     break;
                 }
             }
         }
-        
+
         if (!$hasChanges) {
             return response()->json([
                 'code' => 200,
@@ -977,5 +980,5 @@ class FmyController extends Controller
             ]
         ]);
     }
-}],
+}
 
