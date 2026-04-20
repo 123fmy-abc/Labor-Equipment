@@ -16,6 +16,7 @@ return new class extends Migration
             $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('set null'); // 关联用户
             // 加上 ->nullable()
             $table->foreignId('device_id')->nullable()->constrained('devices')->onDelete('set null'); // 关联设备
+            $table->unsignedInteger('quantity')->default(1)->comment('借用数量');//设备数量
             $table->date('start_date')->comment('借用开始日期');
             $table->date('end_date')->comment('借用结束日期');
             $table->timestamp('returned_at')->nullable()->comment('实际归还时间');

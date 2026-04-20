@@ -58,6 +58,21 @@ class CreateBookingRequest extends FormRequest
                 'date_format:Y-m-d',
                 'after_or_equal:start_date',
             ],
+            'quantity' => [
+                'required',
+                'integer',
+                'min:1',
+                function ($attribute, $value, $fail) {
+                    $deviceId = request()->input('device_id');
+                    if (!$deviceId) {
+                        return;
+                    }
+                    $device = \App\Models\Device::find($deviceId);
+                    if ($device && $value > $device->total_qty) {
+                        $fail('借用数量不能超过设备总库存（当前库存：' . $device->total_qty . '）');
+                    }
+                },
+            ],
             'purpose' => [
                 'required',
                 'string',
@@ -73,6 +88,9 @@ class CreateBookingRequest extends FormRequest
             'device_id.required' => '请选择借用设备',
             'device_id.integer' => '设备ID必须是整数',
             'device_id.exists' => '所选设备不存在或当前不可借用',
+            'quantity.required' => '请输入借用数量',
+            'quantity.integer' => '借用数量必须是整数',
+            'quantity.min' => '借用数量至少为1',
             'start_date.required' => '请选择起始日期',
             'start_date.date_format' => '起始日期格式不正确，应为 YYYY-MM-DD',
             'start_date.after_or_equal' => '起始日期不能早于今天',

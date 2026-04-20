@@ -100,6 +100,7 @@ class FmyController extends Controller
 
         $validated = $request->validated();
         $deviceId = $validated['device_id'];
+        $quantity = $validated['quantity'];
         $startDate = $validated['start_date'];
         $endDate = $validated['end_date'];
         $purpose = $validated['purpose'];
@@ -136,12 +137,18 @@ class FmyController extends Controller
             ], 400);
         }
 
-        // 检查该时间段内设备库存是否充足
-        if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate)) {
+        // 检查该时间段内设备库存是否充足（考虑借用数量）
+        if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate, $quantity)) {
+            $device = Device::find($deviceId);
+            $availableQty = $this->getAvailableQuantity($deviceId, $startDate, $endDate);
             return response()->json([
                 'code' => 409,
-                'message' => '该时间段内设备库存不足，请选择其他时间',
-                'data' => null
+                'message' => '该时间段内设备可用库存不足',
+                'data' => [
+                    'requested_quantity' => $quantity,
+                    'available_quantity' => $availableQty,
+                    'total_quantity' => $device->total_qty
+                ]
             ], 409);
         }
 
@@ -166,6 +173,7 @@ class FmyController extends Controller
         $booking = Booking::create([
             'user_id' => $userId,
             'device_id' => $deviceId,
+            'quantity' => $quantity,
             'start_date' => $startDate,
             'end_date' => $endDate,
             'purpose' => $purpose,
@@ -191,6 +199,7 @@ class FmyController extends Controller
                         'name' => $booking->device->category->name,
                     ] : null,
                 ] : null,
+                'quantity' => $booking->quantity,
                 'start_date' => $booking->start_date->format('Y-m-d'),
                 'end_date' => $booking->end_date->format('Y-m-d'),
                 'purpose' => $booking->purpose,
@@ -202,8 +211,13 @@ class FmyController extends Controller
 
     /**
      * 检查设备在指定时间段内是否可用（库存充足）
+     * @param int $deviceId 设备ID
+     * @param string $startDate 开始日期
+     * @param string $endDate 结束日期
+     * @param int $requestedQty 请求借用数量
+     * @param int|null $excludeBookingId 排除的借用记录ID（用于修改时）
      */
-    private function isDeviceAvailable(int $deviceId, string $startDate, string $endDate, ?int $excludeBookingId = null): bool
+    private function isDeviceAvailable(int $deviceId, string $startDate, string $endDate, int $requestedQty = 1, ?int $excludeBookingId = null): bool
     {
         $device = Device::find($deviceId);
 
@@ -211,14 +225,27 @@ class FmyController extends Controller
             return false;
         }
 
-        // 查询该设备在指定时间段内已批准的借用数量
+        $availableQty = $this->getAvailableQuantity($deviceId, $startDate, $endDate, $excludeBookingId);
+
+        // 可用数量必须大于等于请求数量
+        return $availableQty >= $requestedQty;
+    }
+
+    /**
+     * 获取设备在指定时间段内的可用数量
+     */
+    private function getAvailableQuantity(int $deviceId, string $startDate, string $endDate, ?int $excludeBookingId = null): int
+    {
+        $device = Device::find($deviceId);
+
+        if (!$device) {
+            return 0;
+        }
+
+        // 查询该设备在指定时间段内已批准的借用数量总和
         $query = Booking::where('device_id', $deviceId)
             ->where('status', 'approved')
             ->where(function ($q) use ($startDate, $endDate) {
-                // 日期范围重叠的条件：
-                // 1. 新申请的开始日期在已有借用期间内
-                // 2. 新申请的结束日期在已有借用期间内
-                // 3. 新申请的日期范围完全包含已有借用期间
                 $q->whereBetween('start_date', [$startDate, $endDate])
                     ->orWhereBetween('end_date', [$startDate, $endDate])
                     ->orWhere(function ($subQ) use ($startDate, $endDate) {
@@ -227,17 +254,13 @@ class FmyController extends Controller
                     });
             });
 
-
-        // 如果是修改操作，排除当前记录
-        //修改借用申请时排除自己的逻辑
         if ($excludeBookingId) {
             $query->where('id', '!=', $excludeBookingId);
         }
 
-        $borrowedQty = $query->count();
+        $borrowedQty = $query->sum('quantity');
 
-        // 已借用数量小于设备总数，说明还有库存
-        return $borrowedQty < $device->total_qty;
+        return max(0, $device->total_qty - $borrowedQty);
     }
 
 
@@ -318,7 +341,7 @@ class FmyController extends Controller
         // 检查是否有任何字段被修改
         $hasChanges = false;
         $fieldsToCheck = ['device_id', 'start_date', 'end_date', 'purpose', 'category_id'];
-        
+
         foreach ($fieldsToCheck as $field) {
             if (isset($validated[$field])) {
                 // 日期字段需要格式化后比较
@@ -329,14 +352,14 @@ class FmyController extends Controller
                     $oldValue = $booking->$field;
                     $newValue = $validated[$field];
                 }
-                
+
                 if ($oldValue != $newValue) {
                     $hasChanges = true;
                     break;
                 }
             }
         }
-        
+
         if (!$hasChanges) {
             return response()->json([
                 'code' => 200,
@@ -427,11 +450,18 @@ class FmyController extends Controller
                 ], 409);
             }
 
-            if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate, $id)) {
+            // 获取修改后的借用数量（如果没有修改则使用原数量）
+            $newQuantity = $validated['quantity'] ?? $booking->quantity;
+
+            if (!$this->isDeviceAvailable($deviceId, $startDate, $endDate, $newQuantity, $id)) {
+                $availableQty = $this->getAvailableQuantity($deviceId, $startDate, $endDate, $id);
                 return response()->json([
                     'code' => 409,
-                    'message' => '该时间段内设备库存不足，请选择其他时间',
-                    'data' => null
+                    'message' => '该时间段内设备可用库存不足',
+                    'data' => [
+                        'requested_quantity' => $newQuantity,
+                        'available_quantity' => $availableQty,
+                    ]
                 ], 409);
             }
         }
@@ -642,7 +672,8 @@ class FmyController extends Controller
             'returned_at' => now(),
         ]);
         $device = $booking->device;
-        $device->increment('available_qty', 1);
+        // 根据借用数量恢复库存
+        $device->increment('available_qty', $booking->quantity);
         return response()->json([
             'code' => 200,
             'message' => '归还成功',
@@ -842,19 +873,45 @@ class FmyController extends Controller
             ], 404);
         }
 
-        // 检查库存是否充足
+        // 检查库存是否充足（考虑借用数量）
         $insufficientDevices = [];
+        $deviceQuantities = []; // 统计每个设备需要审批的总数量
+
         foreach ($bookings as $booking) {
-            $device = $booking->device;
-            if ($device->available_qty <= 0) {
-                $insufficientDevices[] = $device->name;
+            $deviceId = $booking->device_id;
+            if (!isset($deviceQuantities[$deviceId])) {
+                $deviceQuantities[$deviceId] = [
+                    'device' => $booking->device,
+                    'total_quantity' => 0,
+                ];
+            }
+            $deviceQuantities[$deviceId]['total_quantity'] += $booking->quantity;
+        }
+
+        foreach ($deviceQuantities as $deviceId => $info) {
+            $device = $info['device'];
+            $requiredQty = $info['total_quantity'];
+
+            // 计算该时间段内的实际可用数量
+            $availableQty = $this->getAvailableQuantity(
+                $deviceId,
+                $booking->start_date->format('Y-m-d'),
+                $booking->end_date->format('Y-m-d')
+            );
+
+            if ($availableQty < $requiredQty) {
+                $insufficientDevices[] = [
+                    'name' => $device->name,
+                    'required' => $requiredQty,
+                    'available' => $availableQty,
+                ];
             }
         }
 
         if (!empty($insufficientDevices)) {
             return response()->json([
                 'code' => 409,
-                'message' => '以下设备库存不足：' . implode('、', $insufficientDevices),
+                'message' => '以下设备库存不足',
                 'data' => [
                     'insufficient_devices' => $insufficientDevices,
                 ]
@@ -870,8 +927,8 @@ class FmyController extends Controller
             foreach ($bookings as $booking) {
                 $device = $booking->device;
 
-                // 减少设备可用库存
-                $device->decrement('available_qty', 1);
+                // 减少设备可用库存（根据借用数量）
+                $device->decrement('available_qty', $booking->quantity);
 
                 // 更新申请状态为已通过
                 $booking->update([
@@ -977,5 +1034,74 @@ class FmyController extends Controller
             ]
         ]);
     }
-}],
+
+    /**
+     * 获取所有设备被借走的总数统计（管理员）
+     * GET /borrowed-stats
+     */
+    public function borrowedStats()
+    {
+        // 总体统计
+        $totalBorrowedQty = Booking::where('status', 'approved')->sum('quantity');
+        $pendingBorrowedQty = Booking::where('status', 'pending')->sum('quantity');
+        $totalInUseQty = Booking::whereIn('status', ['pending', 'approved'])->sum('quantity');
+
+        // 按设备统计
+        $borrowedByDevice = Booking::whereIn('status', ['pending', 'approved'])
+            ->select('device_id', DB::raw('SUM(quantity) as borrowed_qty'))
+            ->groupBy('device_id')
+            ->with('device:id,name,total_qty,status')
+            ->orderByDesc('borrowed_qty')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'device_id' => $item->device_id,
+                    'device_name' => $item->device->name ?? '未知设备',
+                    'total_qty' => $item->device->total_qty ?? 0,
+                    'borrowed_qty' => (int) $item->borrowed_qty,
+                    'available_qty' => ($item->device->total_qty ?? 0) - (int) $item->borrowed_qty,
+                    'device_status' => $item->device->status ?? 'unknown',
+                ];
+            });
+
+        // 按用户统计
+        $borrowedByUser = Booking::whereIn('status', ['pending', 'approved'])
+            ->select('user_id', DB::raw('SUM(quantity) as borrowed_qty'))
+            ->groupBy('user_id')
+            ->with('user:id,name,account')
+            ->orderByDesc('borrowed_qty')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'user_id' => $item->user_id,
+                    'user_name' => $item->user->name ?? '未知用户',
+                    'account' => $item->user->account ?? '',
+                    'borrowed_qty' => (int) $item->borrowed_qty,
+                ];
+            });
+
+        // 按状态统计借用数量
+        $statsByStatus = [
+            'pending' => (int) Booking::where('status', 'pending')->sum('quantity'),
+            'approved' => (int) Booking::where('status', 'approved')->sum('quantity'),
+            'returned' => (int) Booking::where('status', 'returned')->sum('quantity'),
+            'rejected' => (int) Booking::where('status', 'rejected')->sum('quantity'),
+        ];
+
+        return response()->json([
+            'code' => 200,
+            'message' => '获取成功',
+            'data' => [
+                'summary' => [
+                    'total_in_use' => (int) $totalInUseQty,           // 总共被借走（pending + approved）
+                    'approved_only' => (int) $totalBorrowedQty,       // 仅已批准
+                    'pending_only' => (int) $pendingBorrowedQty,      // 仅待审核
+                ],
+                'by_status' => $statsByStatus,                        // 按状态统计
+                'by_device' => $borrowedByDevice,                     // 按设备统计
+                'by_user' => $borrowedByUser,                         // 按用户统计
+            ]
+        ]);
+    }
+}
 
