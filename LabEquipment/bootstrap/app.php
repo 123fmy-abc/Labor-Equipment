@@ -27,14 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->renderable(function (AuthenticationException $e, $request) {
-            // 如果是 API 请求
-            if ($request->is('api/*')) {
-                return response()->json([
-                    'message' => $e->getMessage() ?: 'Unauthenticated.'
-                ], 401); // 返回 401 未授权状态码
-            }
-        });
+
         // API 路由返回 JSON 格式错误
         $exceptions->shouldRenderJsonWhen(function ($request) {
             return $request->is('api/*') || $request->expectsJson();
@@ -122,6 +115,17 @@ return Application::configure(basePath: dirname(__DIR__))
                     'message' => '登录已过期或Token无效，请重新登录',
                     'data' => ['error_type' => 'token_invalid_or_expired']
                 ], 401);
+            }
+        });
+
+        // 自定义权限不足异常响应（403）
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'code' => 403,
+                    'message' => '无权查看，仅管理员可访问',
+                    'data' => ['error_type' => 'forbidden']
+                ], 403);
             }
         });
 

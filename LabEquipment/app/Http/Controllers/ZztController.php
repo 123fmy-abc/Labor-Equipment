@@ -448,13 +448,20 @@ class ZztController extends Controller
 
     // ================================== 8. 获取设备列表（全部设备） ==================================
     /**
-     * 接口功能：获取所有设备列表，支持关键词搜索，分页
-     * 请求参数：keyword(可选，关键词), page(可选，页码), limit(可选，每页数量)
+     * 接口功能：获取所有设备列表，支持关键词搜索、分类筛选、状态筛选，分页
+     * 请求参数：
+     *   - keyword(可选): 关键词，模糊匹配设备名称和描述
+     *   - category_id(可选): 分类ID，筛选指定分类的设备
+     *   - status(可选): 状态筛选，可选值：available/maintenance/disabled
+     *   - page(可选): 页码，默认1
+     *   - limit(可选): 每页数量，默认10
      */
     public function getDeviceList(Request $request)
     {
         // 1. 获取请求参数，设置默认值
         $keyword = $request->input('keyword', '');
+        $categoryId = $request->input('category_id', '');
+        $status = $request->input('status', '');
         $page = $request->input('page', 1);
         $limit = $request->input('limit', 10);
 
@@ -469,7 +476,17 @@ class ZztController extends Controller
             });
         }
 
-        // 4. 分页查询
+        // 4. 分类筛选
+        if ($categoryId) {
+            $query->where('category_id', $categoryId);
+        }
+
+        // 5. 状态筛选
+        if ($status && in_array($status, ['available', 'maintenance', 'disabled'])) {
+            $query->where('status', $status);
+        }
+
+        // 6. 分页查询
         $devices = $query->paginate($limit, ['*'], 'page', $page);
 
 

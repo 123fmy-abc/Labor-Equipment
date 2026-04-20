@@ -51,16 +51,16 @@ class DatabaseSeeder extends Seeder
                 'role'    => 'admin',
                 'email_verified_at' => now(),
             ],
-            [
-                'account' => '25010420544',
-                'name'    => '曹诚俊',
-                'email'   => '',
-                'college'=>'计算机与软件学院',
-                'major'=>'软件工程',
-                'password'=> Hash::make('ccj123456'),
-                'role'    => 'admin',
-                'email_verified_at' => now(),
-            ],
+//            [
+//                'account' => '25010420544',
+//                'name'    => '曹诚俊',
+//                'email'   => '',
+//                'college'=>'计算机与软件学院',
+//                'major'=>'软件工程',
+//                'password'=> Hash::make('ccj123456'),
+//                'role'    => 'admin',
+//                'email_verified_at' => now(),
+//            ],
 
         ];
 

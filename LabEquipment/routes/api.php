@@ -117,10 +117,10 @@ Route::middleware(['auth:api', 'admin','sso'])->group(function () {
 
     // 审批拒绝（仅 pending，需填写原因）
     Route::post('/reject', [FmyController::class, 'reject']);
-
-    // 获取所有设备被借走的总数统计
-    Route::get('/borrowed-stats', [FmyController::class, 'borrowedStats']);
 });
+
+// 获取所有设备被借走的总数统计（使用 admin 中间件别名，错误由 bootstrap/app.php 处理）
+Route::get('/borrowed-stats', [FmyController::class, 'borrowedStats'])->middleware(['auth:api', 'admin', 'sso']);
 
 
 
