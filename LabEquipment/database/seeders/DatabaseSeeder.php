@@ -43,7 +43,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'account' => '25010420544',
-                'name'    => '伏明月',
+                'name'    => '唐新雨',
                 'email'   => '972536599@qq.com',
                 'college'=>'计算机与软件学院',
                 'major'=>'软件工程',
@@ -51,7 +51,17 @@ class DatabaseSeeder extends Seeder
                 'role'    => 'admin',
                 'email_verified_at' => now(),
             ],
-            
+            [
+                'account' => '25010420544',
+                'name'    => '曹诚俊',
+                'email'   => '',
+                'college'=>'计算机与软件学院',
+                'major'=>'软件工程',
+                'password'=> Hash::make('ccj123456'),
+                'role'    => 'admin',
+                'email_verified_at' => now(),
+            ],
+
         ];
 
         foreach ($users as $userData) {
