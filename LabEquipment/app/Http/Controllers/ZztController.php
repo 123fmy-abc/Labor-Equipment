@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
@@ -126,7 +127,9 @@ class ZztController extends Controller
                     'account' => $user->account,
                     'name' => $user->name,
                     'email' => $user->email,
-                    'role' => $user->role
+                    'role' => $user->role,
+                    'college' => $user->college,
+                    'major' => $user->major,
                 ]
             ]
         ]);
@@ -173,7 +176,9 @@ class ZztController extends Controller
                 'account' => $user->account,
                 'name' => $user->name,
                 'email' => $user->email,
-                'role' => $user->role
+                'role' => $user->role,
+                'college' => $user->college,
+                'major' => $user->major,
             ]
         ]);
     }
@@ -229,7 +234,9 @@ class ZztController extends Controller
                 'confirmed',
                 'regex:/^[a-zA-Z][a-zA-Z0-9]*$/'
             ],
-            'old_password' => 'required_with:password|string'
+            'old_password' => 'required_with:password|string',
+            'college' => 'nullable|string|max:100',
+            'major' => 'nullable|string|max:100',
         ], [
             'account.size' => '账户必须为11位数字',
             'account.regex' => '账户必须为11位数字',
@@ -243,7 +250,9 @@ class ZztController extends Controller
             'password.min' => '新密码至少8位',
             'password.confirmed' => '两次输入的新密码不一致',
             'password.regex' => '新密码必须同时包含英文字母和数字',
-            'old_password.required_with' => '修改密码时必须提供旧密码'
+            'old_password.required_with' => '修改密码时必须提供旧密码',
+            'college.max' => '学院名称最多100个字符',
+            'major.max' => '专业名称最多100个字符',
         ]);
 
         $updateData = [];
@@ -311,6 +320,18 @@ class ZztController extends Controller
             $updatedFields[] = 'password';
         }
 
+        // 更新学院
+        if ($request->has('college') && $validated['college'] !== $user->college) {
+            $updateData['college'] = $validated['college'];
+            $updatedFields[] = 'college';
+        }
+
+        // 更新专业
+        if ($request->has('major') && $validated['major'] !== $user->major) {
+            $updateData['major'] = $validated['major'];
+            $updatedFields[] = 'major';
+        }
+
         // 保存修改
         if (!empty($updateData)) {
             $user->update($updateData);
@@ -326,6 +347,8 @@ class ZztController extends Controller
                     'name' => $user->name,
                     'email' => $user->email,
                     'role' => $user->role,
+                    'college' => $user->college,
+                    'major' => $user->major,
                     'email_verified_at' => $user->email_verified_at?->format('Y-m-d H:i:s')
                 ],
                 'updated_fields' => $updatedFields
@@ -370,6 +393,58 @@ class ZztController extends Controller
         }
     }
 
+    // ================================== 7.5 上传头像 ==================================
+    /**
+     * 接口功能：上传用户头像
+     * 请求头：Authorization: Bearer {token}
+     * 请求参数：avatar(图片文件)
+     */
+    public function uploadAvatar(Request $request)
+    {
+        $user = Auth::guard('api')->user();
+
+        // 验证上传文件
+        $validated = $request->validate([
+            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+        ], [
+            'avatar.required' => '请上传头像',
+            'avatar.image' => '必须是图片文件',
+            'avatar.mimes' => '只支持 jpeg, png, jpg, gif 格式',
+            'avatar.max' => '图片大小不能超过2MB',
+        ]);
+
+        try {
+            // 删除旧头像
+            if ($user->avatar) {
+                $oldPath = str_replace('/storage/', '', $user->avatar);
+                Storage::disk('public')->delete($oldPath);
+            }
+
+            // 存储新头像
+            $file = $request->file('avatar');
+            $filename = 'avatars/' . $user->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+            $path = $file->storeAs('public', $filename);
+
+            // 生成访问URL
+            $avatarUrl = '/storage/' . $filename;
+
+            // 更新数据库
+            $user->update(['avatar' => $avatarUrl]);
+
+            return response()->json([
+                'code' => 200,
+                'message' => '头像上传成功',
+                'data' => [
+                    'avatar' => $avatarUrl
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 500,
+                'message' => '上传失败：' . $e->getMessage(),
+            ], 500);
+        }
+    }
 
     // ================================== 8. 获取设备列表（全部设备） ==================================
     /**

@@ -1,6 +1,6 @@
 <?php
 
-namespace app\Models;
+namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -64,5 +64,21 @@ class Device extends Model
 
         return max(0, $this->total_qty - $borrowedCount);
     }
+
+    /**
+     * 获取已借出数量（实时统计）
+     * 已借出 = pending + approved 状态的借用记录数
+     */
+    public function getBorrowedQtyAttribute(): int
+    {
+        return Booking::where('device_id', $this->id)
+            ->whereIn('status', ['pending', 'approved'])
+            ->count();
+    }
+
+    /**
+     * 追加到序列化的属性
+     */
+    protected $appends = ['borrowed_qty'];
 
 }
