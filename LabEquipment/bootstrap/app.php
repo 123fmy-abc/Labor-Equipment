@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Middleware\AdminMiddleware;
+use App\Http\Middleware\CorsMiddleware;
 use App\Http\Middleware\SingleSignOnMiddleware;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -18,8 +20,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin' => AdminMiddleware::class,
             'sso' => SingleSignOnMiddleware::class,
         ]);
+        
+        // API 路由添加 CORS 中间件
+        $middleware->api(prepend: [
+            CorsMiddleware::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+
         // API 路由返回 JSON 格式错误
         $exceptions->shouldRenderJsonWhen(function ($request) {
             return $request->is('api/*') || $request->expectsJson();
@@ -110,12 +118,23 @@ return Application::configure(basePath: dirname(__DIR__))
             }
         });
 
+        // 自定义权限不足异常响应（403）
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'code' => 403,
+                    'message' => '无权查看，仅管理员可访问',
+                    'data' => ['error_type' => 'forbidden']
+                ], 403);
+            }
+        });
+
         // 自定义验证异常响应（ValidationException）
         $exceptions->render(function (\Illuminate\Validation\ValidationException $e, $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
                 $errors = $e->validator->errors();
                 $firstError = $errors->first();
-                
+
                 return response()->json([
                     'code' => 422,
                     'message' => $firstError,

@@ -39,6 +39,9 @@ class User extends Model implements AuthenticatableContract, JWTSubject
         'college',
         'major',
         'avatar'
+        'avatar',
+        'college',
+        'major',
     ];
     protected $hidden = [
         'password',

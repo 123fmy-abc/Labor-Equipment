@@ -174,65 +174,6 @@ class CgjController extends Controller
         ]);
     }
 
-    /**
-     * 设备使用统计
-     * GET /devices/stats
-     * 权限：仅管理员可查看
-     */
-    public function deviceStats()
-    {
-        // 权限检查：只有管理员才能查看统计
-        $currentUser = auth()->user();
-        if (!$currentUser || !$currentUser->isAdmin()) {
-            return response()->json([
-                'code' => 403,
-                'message' => '无权查看，仅管理员可访问'
-            ], 403);
-        }
-
-        $totalDevices = Device::count();
-        $availableDevices = Device::where('status', 'available')->count();
-        $maintenanceDevices = Device::where('status', 'maintenance')->count();
-        $disabledDevices = Device::where('status', 'disabled')->count();
-
-        // 借用统计
-        $totalBookings = Booking::count();
-        $pendingBookings = Booking::where('status', 'pending')->count();
-        $approvedBookings = Booking::where('status', 'approved')->count();
-        $returnedBookings = Booking::where('status', 'returned')->count();
-        $rejectedBookings = Booking::where('status', 'rejected')->count();
-
-        // 最热门的设备
-        $topDevices = Booking::select('device_id', DB::raw('count(*) as booking_count'))
-            ->with('device')
-            ->groupBy('device_id')
-            ->orderBy('booking_count', 'desc')
-            ->limit(5)
-            ->get();
-
-        return response()->json([
-            'code' => 200,
-            'message' => '获取成功',
-            'data' => [
-                'devices' => [
-                    'total' => $totalDevices,
-                    'available' => $availableDevices,
-                    'maintenance' => $maintenanceDevices,
-                    'disabled' => $disabledDevices
-                ],
-                'bookings' => [
-                    'total' => $totalBookings,
-                    'pending' => $pendingBookings,
-                    'approved' => $approvedBookings,
-                    'returned' => $returnedBookings,
-                    'rejected' => $rejectedBookings
-                ],
-                'top_devices' => $topDevices
-            ]
-        ]);
-    }
-
-
     // ==================== 3. 分类模块 - 所有接口 ====================
 
     /**

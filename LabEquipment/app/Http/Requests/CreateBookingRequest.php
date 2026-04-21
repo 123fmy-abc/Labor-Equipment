@@ -62,6 +62,16 @@ class CreateBookingRequest extends FormRequest
                 'required',
                 'integer',
                 'min:1',
+                function ($attribute, $value, $fail) {
+                    $deviceId = request()->input('device_id');
+                    if (!$deviceId) {
+                        return;
+                    }
+                    $device = \App\Models\Device::find($deviceId);
+                    if ($device && $value > $device->total_qty) {
+                        $fail('借用数量不能超过设备总库存（当前库存：' . $device->total_qty . '）');
+                    }
+                },
             ],
             'purpose' => [
                 'required',
