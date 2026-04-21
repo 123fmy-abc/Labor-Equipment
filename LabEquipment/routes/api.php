@@ -32,6 +32,8 @@ Route::middleware(['auth:api','sso'])->group(function () {
     Route::get('/auth/me', [ZztController::class, 'me']);
     //修改个人资料
     Route::put('/auth/profile', [ZztController::class, 'updateProfile']);
+    //上传头像
+    Route::post('/auth/avatar', [ZztController::class, 'uploadAvatar']);
 });
 
 

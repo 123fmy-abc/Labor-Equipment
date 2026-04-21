@@ -173,7 +173,10 @@ class ZztController extends Controller
                 'account' => $user->account,
                 'name' => $user->name,
                 'email' => $user->email,
-                'role' => $user->role
+                'role' => $user->role,
+                'college' => $user->college,
+                'major' => $user->major,
+                'avatar' => $user->avatar
             ]
         ]);
     }
@@ -197,6 +200,9 @@ class ZztController extends Controller
      *   - password(可选): 新密码，至少8位，需包含字母和数字
      *   - password_confirmation(可选): 确认新密码
      *   - old_password(改密码时必填): 旧密码
+     *   - college(可选): 学院，2-100字符
+     *   - major(可选): 专业，2-100字符
+     *   - avatar(可选): 头像URL，最大500字符
      */
     public function updateProfile(Request $request)
     {
@@ -214,6 +220,15 @@ class ZztController extends Controller
         if (isset($input['email']) && $input['email'] === $user->email) {
             unset($input['email']);
         }
+        if (isset($input['college']) && $input['college'] === $user->college) {
+            unset($input['college']);
+        }
+        if (isset($input['major']) && $input['major'] === $user->major) {
+            unset($input['major']);
+        }
+        if (isset($input['avatar']) && $input['avatar'] === $user->avatar) {
+            unset($input['avatar']);
+        }
         $request->replace($input);
 
         // 验证参数
@@ -229,7 +244,10 @@ class ZztController extends Controller
                 'confirmed',
                 'regex:/^[a-zA-Z][a-zA-Z0-9]*$/'
             ],
-            'old_password' => 'required_with:password|string'
+            'old_password' => 'required_with:password|string',
+            'college' => 'nullable|string|min:2|max:100',
+            'major' => 'nullable|string|min:2|max:100',
+            'avatar' => 'nullable|string|max:500|url'
         ], [
             'account.size' => '账户必须为11位数字',
             'account.regex' => '账户必须为11位数字',
@@ -243,7 +261,13 @@ class ZztController extends Controller
             'password.min' => '新密码至少8位',
             'password.confirmed' => '两次输入的新密码不一致',
             'password.regex' => '新密码必须同时包含英文字母和数字',
-            'old_password.required_with' => '修改密码时必须提供旧密码'
+            'old_password.required_with' => '修改密码时必须提供旧密码',
+            'college.min' => '学院名称至少2个字符',
+            'college.max' => '学院名称最多100个字符',
+            'major.min' => '专业名称至少2个字符',
+            'major.max' => '专业名称最多100个字符',
+            'avatar.max' => '头像URL最多500个字符',
+            'avatar.url' => '头像URL格式不正确'
         ]);
 
         $updateData = [];
@@ -259,6 +283,24 @@ class ZztController extends Controller
         if ($request->has('name') && $validated['name'] !== $user->name) {
             $updateData['name'] = $validated['name'];
             $updatedFields[] = 'name';
+        }
+
+        // 更新学院
+        if ($request->has('college') && $validated['college'] !== $user->college) {
+            $updateData['college'] = $validated['college'];
+            $updatedFields[] = 'college';
+        }
+
+        // 更新专业
+        if ($request->has('major') && $validated['major'] !== $user->major) {
+            $updateData['major'] = $validated['major'];
+            $updatedFields[] = 'major';
+        }
+
+        // 更新头像
+        if ($request->has('avatar') && $validated['avatar'] !== $user->avatar) {
+            $updateData['avatar'] = $validated['avatar'];
+            $updatedFields[] = 'avatar';
         }
 
         // 更新邮箱
@@ -326,11 +368,66 @@ class ZztController extends Controller
                     'name' => $user->name,
                     'email' => $user->email,
                     'role' => $user->role,
-                    'email_verified_at' => $user->email_verified_at?->format('Y-m-d H:i:s')
+                    'email_verified_at' => $user->email_verified_at?->format('Y-m-d H:i:s'),
+                    'college' => $user->college,
+                    'major' => $user->major,
+                    'avatar' => $user->avatar
                 ],
                 'updated_fields' => $updatedFields
             ]
         ]);
+    }
+
+    // ================================== 5. 上传头像 ==================================
+    /**
+     * 接口功能：上传用户头像，支持 jpg/png/gif 格式，最大 2MB
+     * 请求头：Authorization: Bearer {token}
+     * 请求参数：avatar (file 类型)
+     * 返回：头像访问 URL
+     */
+    public function uploadAvatar(Request $request)
+    {
+        /** @var User $user */
+        $user = Auth::guard('api')->user();
+
+        // 验证上传文件
+        $validated = $request->validate([
+            'avatar' => 'required|image|mimes:jpg,jpeg,png,gif|max:2048'
+        ], [
+            'avatar.required' => '请选择要上传的头像文件',
+            'avatar.image' => '上传的文件必须是图片',
+            'avatar.mimes' => '头像格式必须是 jpg、png 或 gif',
+            'avatar.max' => '头像文件大小不能超过 2MB'
+        ]);
+
+        try {
+            // 获取上传的文件
+            $file = $request->file('avatar');
+
+            // 生成唯一文件名：user_{user_id}_{时间戳}.{扩展名}
+            $filename = 'avatar_' . $user->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+
+            // 存储到 public/avatars 目录
+            $path = $file->storeAs('avatars', $filename, 'public');
+
+            // 生成访问 URL
+            $url = asset('storage/' . $path);
+
+            return response()->json([
+                'code' => 200,
+                'message' => '头像上传成功',
+                'data' => [
+                    'url' => $url,
+                    'filename' => $filename
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 500,
+                'message' => '头像上传失败：' . $e->getMessage(),
+                'data' => []
+            ], 500);
+        }
     }
 
     // ================================== 6. 发送邮箱验证码 ==================================
