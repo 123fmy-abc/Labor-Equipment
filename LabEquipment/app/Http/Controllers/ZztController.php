@@ -17,7 +17,6 @@ use Tymon\JWTAuth\Facades\JWTAuth;
 
 class ZztController extends Controller
 {
-    // 中间件已移至路由文件中定义
 
     /**
      * 用户注册
@@ -184,222 +183,6 @@ class ZztController extends Controller
         ]);
     }
 
-    /**
-     * 修改个人资料
-     * 请求头：Authorization: Bearer {token}
-     * 请求参数：name(可选), email(可选), password(可选), password_confirmation(可选), old_password(改密码必填)
-     */
-
-    /**
-     * 修改个人资料
-    /**
-     * 接口功能：修改个人信息/密码
-     * 请求头：Authorization: Bearer {token}
-     * 请求参数：
-     *   - account(可选): 账户，唯一，英文开头
-     *   - name(可选): 姓名，2-50字符
-     *   - email(可选): 邮箱，需验证唯一性，修改时需要提供 email_code
-     *   - email_code(修改邮箱时必填): 新邮箱的验证码
-     *   - password(可选): 新密码，至少8位，需包含字母和数字
-     *   - password_confirmation(可选): 确认新密码
-     *   - old_password(改密码时必填): 旧密码
-     *   - college(可选): 学院，2-100字符
-     *   - major(可选): 专业，2-100字符
-     *   - avatar(可选): 头像URL，最大500字符
-     */
-    public function updateProfile(Request $request)
-    {
-        /** @var User $user */
-        $user = Auth::guard('api')->user();
-
-        // 过滤掉和原值相同的字段（不传这些字段就不会触发验证）
-        $input = $request->all();
-        if (isset($input['account']) && $input['account'] === $user->account) {
-            unset($input['account']);
-        }
-        if (isset($input['name']) && $input['name'] === $user->name) {
-            unset($input['name']);
-        }
-        if (isset($input['email']) && $input['email'] === $user->email) {
-            unset($input['email']);
-        }
-        if (isset($input['college']) && $input['college'] === $user->college) {
-            unset($input['college']);
-        }
-        if (isset($input['major']) && $input['major'] === $user->major) {
-            unset($input['major']);
-        }
-        if (isset($input['avatar']) && $input['avatar'] === $user->avatar) {
-            unset($input['avatar']);
-        }
-        $request->replace($input);
-
-        // 验证参数
-        $validated = $request->validate([
-            'account' => 'nullable|string|size:11|regex:/^\d{11}$/|unique:users,account,' . $user->id,
-            'name' => 'nullable|string|min:2|max:50',
-            'email' => 'nullable|email|unique:users,email,' . $user->id,
-            'email_code' => 'required_with:email|string|size:6',
-            'password' => [
-                'nullable',
-                'string',
-                'min:8',
-                'confirmed',
-                'regex:/^[a-zA-Z][a-zA-Z0-9]*$/'
-            ],
-            'old_password' => 'required_with:password|string',
-            'college' => 'nullable|string|min:2|max:100',
-            'major' => 'nullable|string|min:2|max:100',
-            'avatar' => 'nullable|string|max:500|url'
-            'college' => 'nullable|string|max:100',
-            'major' => 'nullable|string|max:100',
-        ], [
-            'account.size' => '账户必须为11位数字',
-            'account.regex' => '账户必须为11位数字',
-            'account.unique' => '该账户已被使用',
-            'name.min' => '姓名至少2个字符',
-            'name.max' => '姓名最多50个字符',
-            'email.email' => '邮箱格式不正确',
-            'email.unique' => '该邮箱已被其他用户使用',
-            'email_code.required_with' => '修改邮箱时必须提供验证码',
-            'email_code.size' => '验证码必须是6位',
-            'password.min' => '新密码至少8位',
-            'password.confirmed' => '两次输入的新密码不一致',
-            'password.regex' => '新密码必须同时包含英文字母和数字',
-            'old_password.required_with' => '修改密码时必须提供旧密码',
-            'college.min' => '学院名称至少2个字符',
-            'college.max' => '学院名称最多100个字符',
-            'major.min' => '专业名称至少2个字符',
-            'major.max' => '专业名称最多100个字符',
-            'avatar.max' => '头像URL最多500个字符',
-            'avatar.url' => '头像URL格式不正确'
-            'college.max' => '学院名称最多100个字符',
-            'major.max' => '专业名称最多100个字符',
-        ]);
-
-        $updateData = [];
-        $updatedFields = [];
-
-        // 更新账户
-        if ($request->has('account') && $validated['account'] !== $user->account) {
-            $updateData['account'] = $validated['account'];
-            $updatedFields[] = 'account';
-        }
-
-        // 更新姓名
-        if ($request->has('name') && $validated['name'] !== $user->name) {
-            $updateData['name'] = $validated['name'];
-            $updatedFields[] = 'name';
-        }
-
-        // 更新学院
-        if ($request->has('college') && $validated['college'] !== $user->college) {
-            $updateData['college'] = $validated['college'];
-            $updatedFields[] = 'college';
-        }
-
-        // 更新专业
-        if ($request->has('major') && $validated['major'] !== $user->major) {
-            $updateData['major'] = $validated['major'];
-            $updatedFields[] = 'major';
-        }
-
-        // 更新头像
-        if ($request->has('avatar') && $validated['avatar'] !== $user->avatar) {
-            $updateData['avatar'] = $validated['avatar'];
-            $updatedFields[] = 'avatar';
-        }
-
-        // 更新邮箱
-        if ($request->has('email') && $validated['email'] !== $user->email) {
-            // 验证邮箱验证码
-            $cacheCode = cache()->get('email_code_' . $validated['email']);
-            if (!$cacheCode || $cacheCode != $request->input('email_code')) {
-                return response()->json([
-                    'code' => 400,
-                    'message' => '邮箱验证码错误或已过期',
-                    'data' => ['error_field' => 'email_code']
-                ], 400);
-            }
-
-            $updateData['email'] = $validated['email'];
-            $updateData['email_verified_at'] = now(); // 验证通过后设为当前时间
-            $updatedFields[] = 'email';
-
-            // 删除已使用的验证码
-            cache()->forget('email_code_' . $validated['email']);
-        }
-
-        // 更新密码
-        if ($request->filled('password')) {
-            if (!$request->filled('old_password')) {
-                return response()->json([
-                    'code' => 400,
-                    'message' => '修改密码时必须提供旧密码',
-                    'data' => ['error_field' => 'old_password']
-                ], 400);
-            }
-
-            if (!Hash::check($request->input('old_password'), $user->password)) {
-                return response()->json([
-                    'code' => 400,
-                    'message' => '旧密码错误',
-                    'data' => ['error_field' => 'old_password']
-                ], 400);
-            }
-
-            if (Hash::check($validated['password'], $user->password)) {
-                return response()->json([
-                    'code' => 400,
-                    'message' => '新密码不能与旧密码相同',
-                    'data' => ['error_field' => 'password']
-                ], 400);
-            }
-
-            $updateData['password'] = Hash::make($validated['password']);
-            $updatedFields[] = 'password';
-        }
-
-        // 更新学院
-        if ($request->has('college') && $validated['college'] !== $user->college) {
-            $updateData['college'] = $validated['college'];
-            $updatedFields[] = 'college';
-        }
-
-        // 更新专业
-        if ($request->has('major') && $validated['major'] !== $user->major) {
-            $updateData['major'] = $validated['major'];
-            $updatedFields[] = 'major';
-        }
-
-        // 保存修改
-        if (!empty($updateData)) {
-            $user->update($updateData);
-        }
-
-        return response()->json([
-            'code' => 200,
-            'message' => empty($updatedFields) ? '资料无变化' : '资料修改成功',
-            'data' => [
-                'user' => [
-                    'id' => $user->id,
-                    'account' => $user->account,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'role' => $user->role,
-                    'email_verified_at' => $user->email_verified_at?->format('Y-m-d H:i:s'),
-                    'college' => $user->college,
-                    'major' => $user->major,
-                    'avatar' => $user->avatar
-                    'college' => $user->college,
-                    'major' => $user->major,
-                    'email_verified_at' => $user->email_verified_at?->format('Y-m-d H:i:s')
-                ],
-                'updated_fields' => $updatedFields
-            ]
-        ]);
-    }
-
     // ================================== 5. 上传头像 ==================================
     /**
      * 接口功能：上传用户头像，支持 jpg/png/gif 格式，最大 2MB
@@ -489,58 +272,7 @@ class ZztController extends Controller
         }
     }
 
-    // ================================== 7.5 上传头像 ==================================
-    /**
-     * 接口功能：上传用户头像
-     * 请求头：Authorization: Bearer {token}
-     * 请求参数：avatar(图片文件)
-     */
-    public function uploadAvatar(Request $request)
-    {
-        $user = Auth::guard('api')->user();
 
-        // 验证上传文件
-        $validated = $request->validate([
-            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
-        ], [
-            'avatar.required' => '请上传头像',
-            'avatar.image' => '必须是图片文件',
-            'avatar.mimes' => '只支持 jpeg, png, jpg, gif 格式',
-            'avatar.max' => '图片大小不能超过2MB',
-        ]);
-
-        try {
-            // 删除旧头像
-            if ($user->avatar) {
-                $oldPath = str_replace('/storage/', '', $user->avatar);
-                Storage::disk('public')->delete($oldPath);
-            }
-
-            // 存储新头像
-            $file = $request->file('avatar');
-            $filename = 'avatars/' . $user->id . '_' . time() . '.' . $file->getClientOriginalExtension();
-            $path = $file->storeAs('public', $filename);
-
-            // 生成访问URL
-            $avatarUrl = '/storage/' . $filename;
-
-            // 更新数据库
-            $user->update(['avatar' => $avatarUrl]);
-
-            return response()->json([
-                'code' => 200,
-                'message' => '头像上传成功',
-                'data' => [
-                    'avatar' => $avatarUrl
-                ]
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'code' => 500,
-                'message' => '上传失败：' . $e->getMessage(),
-            ], 500);
-        }
-    }
 
     // ================================== 8. 获取设备列表（全部设备） ==================================
     /**
@@ -706,8 +438,8 @@ class ZztController extends Controller
         // 3. 根据状态设置可用库存
         // 只有状态为 available 时，可用库存才等于总库存
         // 其他状态（maintenance, disabled）可用库存为 0
-        $validated['available_qty'] = $validated['status'] === 'available' 
-            ? $validated['total_qty'] 
+        $validated['available_qty'] = $validated['status'] === 'available'
+            ? $validated['total_qty']
             : 0;
 
         // 4. 创建设备
