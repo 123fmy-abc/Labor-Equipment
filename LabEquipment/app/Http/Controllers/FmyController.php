@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Mail;
 
 class FmyController extends Controller
 {
+    //忘记密码
     public function forgotPassword(ForgotPasswordRequest $request)
     {
         //忘记密码
@@ -51,6 +52,9 @@ class FmyController extends Controller
         }
     }
 
+
+
+    
     //重置密码
     public function resetPassword(ResetPasswordRequest $request)
     {
