@@ -25,6 +25,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(prepend: [
             CorsMiddleware::class,
         ]);
+        
+        // 禁用认证中间件的重定向，确保 API 返回 JSON 而不是重定向到 login 路由
+        $middleware->redirectGuestsTo(fn (\Illuminate\Http\Request $request) => '');
+        $middleware->redirectUsersTo(fn (\Illuminate\Http\Request $request) => '');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
 
@@ -142,6 +146,26 @@ return Application::configure(basePath: dirname(__DIR__))
                         'errors' => $errors->toArray()
                     ]
                 ], 422);
+            }
+        });
+
+        // 处理路由未找到异常（特别是 login 路由未定义的情况）
+        $exceptions->render(function (\Symfony\Component\Routing\Exception\RouteNotFoundException $e, $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                // 如果是 login 路由未定义，返回 401
+                if (str_contains($e->getMessage(), 'login')) {
+                    return response()->json([
+                        'code' => 401,
+                        'message' => '请先登录后再操作',
+                        'data' => ['error_type' => 'token_not_provided']
+                    ], 401);
+                }
+
+                return response()->json([
+                    'code' => 500,
+                    'message' => '路由错误：' . $e->getMessage(),
+                    'data' => []
+                ], 500);
             }
         });
     })->create();
