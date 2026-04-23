@@ -183,7 +183,140 @@ class ZztController extends Controller
         ]);
     }
 
-    // ================================== 5. 上传头像 ==================================
+    // ================================== 5. 修改个人资料 ==================================
+    /**
+     * 接口功能：修改个人资料
+     * 请求头：Authorization: Bearer {token}
+     * 请求参数：
+     *   - name(可选): 姓名，2-50字符
+     *   - email(可选): 邮箱，修改时需要提供 email_code
+     *   - email_code(可选): 邮箱验证码，修改邮箱时必填
+     *   - college(可选): 学院，最多100字符
+     *   - major(可选): 专业，最多100字符
+     *   - password(可选): 新密码，至少8位，英文字母开头
+     *   - password_confirmation(可选): 确认新密码
+     *   - old_password(可选): 旧密码，修改密码时必填
+     */
+    public function updateProfile(Request $request)
+    {
+        /** @var User $user */
+        $user = Auth::guard('api')->user();
+
+        // 验证参数
+        $validated = $request->validate([
+            'name' => 'nullable|string|min:2|max:50',
+            'email' => 'nullable|email|unique:users,email,' . $user->id,
+            'email_code' => 'required_with:email|string|size:6',
+            'college' => 'nullable|string|max:100',
+            'major' => 'nullable|string|max:100',
+            'password' => ['nullable', 'string', 'min:8', 'confirmed', 'regex:/^[a-zA-Z][a-zA-Z0-9]*$/'],
+            'old_password' => 'required_with:password|string',
+        ], [
+            'name.min' => '姓名至少2个字符',
+            'name.max' => '姓名最多50个字符',
+            'email.email' => '邮箱格式不正确',
+            'email.unique' => '该邮箱已被其他用户使用',
+            'email_code.required_with' => '修改邮箱时必须提供验证码',
+            'email_code.size' => '验证码必须是6位',
+            'college.max' => '学院名称最多100个字符',
+            'major.max' => '专业名称最多100个字符',
+            'password.min' => '新密码至少8位',
+            'password.confirmed' => '两次输入的新密码不一致',
+            'password.regex' => '新密码必须以英文字母开头，且只能包含英文字母和数字',
+            'old_password.required_with' => '修改密码时必须提供旧密码',
+        ]);
+
+        $updateData = [];
+        $updatedFields = [];
+
+        // 更新姓名
+        if ($request->has('name') && $validated['name'] !== $user->name) {
+            $updateData['name'] = $validated['name'];
+            $updatedFields[] = 'name';
+        }
+
+        // 更新邮箱
+        if ($request->has('email') && $validated['email'] !== $user->email) {
+            // 验证邮箱验证码
+            $cacheCode = cache()->get('email_code_' . $validated['email']);
+            if (!$cacheCode || $cacheCode != $request->input('email_code')) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '邮箱验证码错误或已过期',
+                    'data' => ['error_field' => 'email_code']
+                ], 400);
+            }
+
+            $updateData['email'] = $validated['email'];
+            $updateData['email_verified_at'] = now();
+            $updatedFields[] = 'email';
+
+            // 删除已使用的验证码
+            cache()->forget('email_code_' . $validated['email']);
+        }
+
+        // 更新学院
+        if ($request->has('college') && $validated['college'] !== $user->college) {
+            $updateData['college'] = $validated['college'];
+            $updatedFields[] = 'college';
+        }
+
+        // 更新专业
+        if ($request->has('major') && $validated['major'] !== $user->major) {
+            $updateData['major'] = $validated['major'];
+            $updatedFields[] = 'major';
+        }
+
+        // 更新密码
+        if ($request->filled('password')) {
+            // 验证旧密码
+            if (!Hash::check($request->input('old_password'), $user->password)) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '旧密码错误',
+                    'data' => ['error_field' => 'old_password']
+                ], 400);
+            }
+
+            // 检查新密码是否与旧密码相同
+            if (Hash::check($validated['password'], $user->password)) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '新密码不能与旧密码相同',
+                    'data' => ['error_field' => 'password']
+                ], 400);
+            }
+
+            $updateData['password'] = Hash::make($validated['password']);
+            $updatedFields[] = 'password';
+        }
+
+        // 保存修改
+        if (!empty($updateData)) {
+            $user->update($updateData);
+        }
+
+        return response()->json([
+            'code' => 200,
+            'message' => empty($updatedFields) ? '资料无变化' : '资料修改成功',
+            'data' => [
+                'user' => [
+                    'id' => $user->id,
+                    'account' => $user->account,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                    'college' => $user->college,
+                    'major' => $user->major,
+                    'avatar' => $user->avatar,
+                    'email_verified_at' => $user->email_verified_at?->format('Y-m-d H:i:s')
+                ],
+                'updated_fields' => $updatedFields
+            ]
+        ]);
+    }
+
+    // ================================== 6. 上传头像 ==================================
     /**
      * 接口功能：上传用户头像，支持 jpg/png/gif 格式，最大 2MB
      * 请求头：Authorization: Bearer {token}

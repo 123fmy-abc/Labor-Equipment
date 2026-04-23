@@ -54,7 +54,7 @@ class FmyController extends Controller
 
 
 
-    
+
     //重置密码
     public function resetPassword(ResetPasswordRequest $request)
     {
