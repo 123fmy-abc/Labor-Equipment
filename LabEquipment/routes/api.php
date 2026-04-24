@@ -17,7 +17,7 @@ Route::post('/auth/register', [ZztController::class, 'register']);
 //发送邮箱验证码
 Route::post('/auth/sendCode', [ZztController::class, 'sendEmailCode']);
 //登录
-Route::post('/auth/login', [ZztController::class, 'login']);
+Route::post('/auth/login', [ZztController::class, 'login'])->name('login');
 //忘记密码 - 发送重置链接
 Route::post('/forgot-password', [FmyController::class, 'forgotPassword']);
 //重置密码

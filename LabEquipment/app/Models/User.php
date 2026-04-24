@@ -38,7 +38,6 @@ class User extends Model implements AuthenticatableContract, JWTSubject
         'email_verified_at',
         'college',
         'major',
-        'avatar'
         'avatar',
         'college',
         'major',
